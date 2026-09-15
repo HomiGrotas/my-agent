@@ -1,5 +1,5 @@
-# my-agent
-A simple agent project
+# Phase 1
+A simple agent project - all chat implementations are hand written
 
 ## Goal
 This project aims to create a simple agent, without a specific goal, as I wanted to get experience with building agents.
@@ -37,3 +37,15 @@ As ollama is compatible with the OpenAI API, we can use the openai python packag
 
 ### Context window
 We currently save the conversation in memory, but it's suggested in prod agents to consider another storage method.
+
+# Phase 2
+## The problem
+As I run a local LLM model (llama 3.2), I encountered a huge difficulty - the model isn't smart enough.
+
+## The Solution
+checkout the branch test/gemini, where I implemented the agent using Google AI sdk.
+But, is it the best solution? Nope- Using Google Sdk couples me only to gemini models!
+
+So, I need to research solutions, such as LangGraph and Pydantic AI.
+* LangGraph - An expansive, feature-rich framework designed for rapid prototyping and complex orchestration
+* Pydantic AI - A lean, type-safe Python toolkit built for production reliability
