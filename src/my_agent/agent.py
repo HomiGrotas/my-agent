@@ -4,9 +4,8 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
-from .tools import TOOLS_LIST  # List of Python functions: [read_file, write_file]
+from .tools import TOOLS_LIST
 
-# Initialize Gemini Client
 client = genai.Client(
     api_key=os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY")
 )
