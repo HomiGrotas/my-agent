@@ -4,11 +4,13 @@ from typing import Optional
 
 from openai.types.chat.chat_completion_message_function_tool_call import ChatCompletionMessageFunctionToolCall
 from .read_file import ReadFileTool
+from .write_file import WriteFileTool
 from .models import Tool
 
 
 ALL_TOOLS = {
-    ReadFileTool.name: ReadFileTool
+    ReadFileTool.name: ReadFileTool,
+    WriteFileTool.name: WriteFileTool,
 }
 
 TOOLS_SCHEMA = [tool.schema for tool in ALL_TOOLS.values()]
