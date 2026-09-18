@@ -1,74 +1,42 @@
-import json
-import os
-from pathlib import Path
-from openai import OpenAI
-from openai.types.chat import ChatCompletion
+from pydantic_ai import Agent
 
-from .tools import call_tool, TOOLS_SCHEMA
+from my_agent.tools.send_whatsapp_message import send_whatsapp_message
 
-client = OpenAI(
-    base_url=os.environ.get("PROVIDER_URL", "http://localhost:11434/v1"),
-    api_key=os.environ.get("OPENAI_API_KEY", "WE_DO_NOT_NEED_API_KEY_LOL"),
+agent = Agent(
+    'google:gemini-3-flash-preview',
+    instructions=(
+        "You're a helpful assistant that can send WhatsApp messages on the user's behalf. "
+        "Ask for the recipient's phone number and the message content if they weren't provided, "
+        "then use the send_whatsapp_message tool to deliver it. Confirm to the user once it's sent."
+    ),
 )
 
-MODEL = os.environ.get("MODEL", "llama3.2")
-SYSTEM_PROMPT_PATH = Path(__file__).parent.parent / "res" / "system_prompt.md"
-SYSTEM_PROMPT = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+
+@agent.tool_plain
+def send_whatsapp(recipient_phone: str, message_text: str) -> str:
+    """Send a WhatsApp text message to a phone number.
+
+    :param recipient_phone: Recipient's phone number in international format (e.g. +14155552671)
+    :param message_text: The message body text to send
+    :return: A confirmation string describing the result
+    """
+    response = send_whatsapp_message(recipient_phone, message_text)
+    return f"Message sent successfully: {response}"
 
 
-def log_usage_statistics(response: ChatCompletion) -> None:
-    if response.usage:
-        print(f"Total tokens: {response.usage.total_tokens}. Prompt tokens: {response.usage.prompt_tokens}")
-
-
-def run_agent() -> None:
-    messages_context = [{"role": "system", "content": SYSTEM_PROMPT}]
-
+def run_agent():
+    print("WhatsApp agent ready. Type your request, or 'exit' to quit.")
+    message_history = []
     while True:
-        try:
-            user_input = input("User: ").strip()
-        except (KeyboardInterrupt, EOFError):
-            print("\nBye master!")
+        user_input = input("> ").strip()
+        if user_input.lower() in {"exit", "quit"}:
             break
-
-        if user_input in {'/exit', '/bye'}:
-            print("Bye master!")
-            break
-
         if not user_input:
             continue
 
-        messages_context.append({"role": "user", "content": user_input})
-
-        response = client.chat.completions.create(
-            model=MODEL,
-            tools=TOOLS_SCHEMA,
-            messages=messages_context,
-        )
-
-        message = response.choices[0].message
-        messages_context.append(message.model_dump(exclude_none=True))
-
-        while message.tool_calls:
-            for tool_call in message.tool_calls:
-                tool_result_message = call_tool(tool_call)
-                messages_context.append(tool_result_message)
-
-            response = client.chat.completions.create(
-                model=MODEL,
-                tools=TOOLS_SCHEMA,
-                messages=messages_context,
-            )
-            message = response.choices[0].message
-            messages_context.append(message.model_dump(exclude_none=True))
-
-        print(f"Dorina: {message.content}")
-
-        with open('context.json', 'w', encoding='utf-8') as context_json:
-            json.dump(messages_context, context_json, indent=2)
-
-        log_usage_statistics(response)
+        result = agent.run_sync(user_input, message_history=message_history)
+        print(result.output)
+        message_history = result.all_messages()
 
 
-if __name__ == "__main__":
-    run_agent()
+run_agent()
