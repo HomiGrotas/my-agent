@@ -1,4 +1,6 @@
 .idea
+scripts/
+res/parashot_articles/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
