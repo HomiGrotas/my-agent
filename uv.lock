@@ -940,12 +940,14 @@ name = "my-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "logfire" },
     { name = "pydantic-ai" },
     { name = "requests" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "logfire", specifier = ">=5.1.0" },
     { name = "pydantic-ai", specifier = ">=2.45.0" },
     { name = "requests", specifier = ">=2.32.0" },
 ]

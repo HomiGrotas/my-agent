@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "logfire>=5.1.0",
     "pydantic-ai>=2.45.0",
     "requests>=2.32.0",
 ]

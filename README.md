@@ -49,3 +49,5 @@ But, is it the best solution? Nope- Using Google Sdk couples me only to gemini m
 So, I need to research solutions, such as LangGraph and Pydantic AI.
 * LangGraph - An expansive, feature-rich framework designed for rapid prototyping and complex orchestration
 * Pydantic AI - A lean, type-safe Python toolkit built for production reliability
+
+# Phase 3 - building an AI agent using Pydantic AI
