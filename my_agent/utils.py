@@ -25,6 +25,25 @@ def get_coming_jewish_events() -> dict:
         return {}
 
     return {
-        "parasha": parasha_item.get("displayValue", {}).get("en"),
-        "description": parasha_item.get("description", {}).get("en"),
+        "parasha": parasha_item.get("displayValue", {}).get("he"),
+        "description": parasha_item.get("description", {}).get("he"),
     }
+
+
+def build_parasha_message(parasha: str, description: str, dvar_torah: str, article_url: str) -> str:
+    """Assembles the final WhatsApp message from its fixed parts.
+
+    :param parasha: The Parasha's name
+    :param description: The Parasha's short description ("תקציר הפרשה")
+    :param dvar_torah: The LLM-generated reflection text ("דבר תורה")
+    :param article_url: URL of the source article, appended on its own line
+    :return: The fully formatted message text
+    """
+    return (
+        f"*{parasha}*\n\n"
+        f"#*תקציר הפרשה*\n"
+        f"{description}\n\n"
+        f"*דבר תורה*\n"
+        f"{dvar_torah}\n\n"
+        f"{article_url}"
+    )

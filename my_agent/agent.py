@@ -1,13 +1,17 @@
+import os
+
 import logfire
 from pydantic_ai import Agent
 
 from my_agent.tools.fetch_israeli_news import fetch_israeli_news
 from my_agent.tools.get_parasha_articles import get_parasha_articles
 from my_agent.tools.send_whatsapp_message import send_whatsapp_message
-from my_agent.utils import get_coming_jewish_events
+from my_agent.utils import build_parasha_message, get_coming_jewish_events
 
 logfire.configure(service_name="my-agent")
 logfire.instrument_pydantic_ai()
+
+jewish_events = get_coming_jewish_events()
 
 agent = Agent(
     'google:gemini-3.5-flash-lite',
@@ -20,16 +24,14 @@ agent = Agent(
         f"Use the news in an optimistic way only. Use only articles relevant for the Parasha, no more than 3.\n"
         f"2. **Gather Parasha source material** – Use your tool to fetch Rabbi Jonathan Sacks' "
         f"\"Covenant & Conversation\" articles for the current Parasha, and draw on their themes and insights.\n"
-        f"3. **Craft the message** – Write a meaningful, insightful message that:\n"
-        f"   - Names the Parasha and briefly summarizes its core theme or story\n"
-        f"   - Draws a thoughtful, relevant connection to one or more current news events\n"
-        f"   - Ends with a practical lesson or question for reflection (דבר תורה style)\n"
-        f"   - Is warm, respectful, and accessible to a general Jewish audience\n"
-        f"   - Is concise enough for a text message (under 300 words)\n"
-        f"   - MUST end with the article link: the exact `url` field of the Parasha article you drew from "
-        f"(if you used more than one, use the url of the first/primary one), on its own line\n"
-        f"4. **Send the message** – Deliver it to the requested phone number using your send tool. "
-        f"Do not send it without the article link included.\n\n"
+        f"3. **Write the דבר תורה** – Write a meaningful, insightful reflection that draws a thoughtful, "
+        f"relevant connection between the Parasha and one or more current news events, and ends with a "
+        f"practical lesson or question for reflection (דבר תורה style). It should be warm, respectful, "
+        f"accessible to a general Jewish audience, and concise enough for a text message (under 1300 words). "
+        f"Do not write a title, headers, or a link yourself — write only the דבר תורה body text.\n"
+        f"4. **Send the message** – Call your send tool with the דבר תורה text and the exact `url` field of "
+        f"the Parasha article you drew from (if you used more than one, use the url of the first/primary one). "
+        f"The rest of the message is assembled automatically.\n\n"
 
         f"## Tone & Style\n"
         f"- Hebrew only\n"
@@ -37,7 +39,7 @@ agent = Agent(
         f"- Engaging, not preachy\n"
 
         f"## Jewish Calendar Context\n"
-        f"{get_coming_jewish_events()}\n\n"
+        f"{jewish_events}\n\n"
 
         f"The current Parasha and any upcoming holidays are listed above. "
         f"If a major event is approaching, weave it into the message alongside the Parasha."
@@ -67,25 +69,28 @@ def fetch_parasha_articles(parasha: str) -> list[dict]:
 
 
 @agent.tool_plain
-def send_whatsapp(recipient_phone: str, message_text: str) -> str:
-    """Send a WhatsApp text message to a phone number.
+def send_parasha_whatsapp(recipient_phone: str, dvar_torah: str, article_url: str) -> str:
+    """Assemble the Parasha message from its template and send it via WhatsApp.
 
     :param recipient_phone: Recipient's phone number in international format (e.g. +14155552671)
-    :param message_text: The message body text to send
+    :param dvar_torah: The דבר תורה reflection text connecting the Parasha to current events
+    :param article_url: URL of the source Parasha article, appended to the message
     :return: A confirmation string describing the result
     """
+    message_text = build_parasha_message(
+        parasha=jewish_events.get("parasha"),
+        description=jewish_events.get("description"),
+        dvar_torah=dvar_torah,
+        article_url=article_url,
+    )
     response = send_whatsapp_message(recipient_phone, message_text)
     return f"Message sent successfully: {response}"
 
 
 def run_agent():
-    print("WhatsApp agent ready. Type your request, or 'exit' to quit.")
-    message_history = []
-    while True:
-        user_input = input("> ").strip()
-        if user_input.lower() in {"/exit", "/quit"}:
-            break
-
-        result = agent.run_sync(user_input, message_history=message_history)
-        print(result.output)
-        message_history = result.all_messages()
+    recipient_phone_number = os.environ.get('RECIPIENT_PHONE_NUMBER')
+    if not recipient_phone_number:
+        print("No recipient phone number")
+        exit(-1)
+    result = agent.run_sync()
+    print(result.output)
