@@ -92,5 +92,5 @@ def run_agent():
     if not recipient_phone_number:
         print("No recipient phone number")
         exit(-1)
-    result = agent.run_sync()
+    result = agent.run_sync(f"Send to {recipient_phone_number}")
     print(result.output)
