@@ -10,6 +10,43 @@ def _slugify(parasha: str) -> str:
     return re.sub(r"[^a-z0-9-]", "", slug)
 
 
+# Sefaria calendar spellings whose slug differs from the local file name
+PARASHA_SLUG_ALIASES = {
+    "shlach": "shelach-lecha",
+}
+
+
+# Prefixes of Sefaria's holiday reading names (e.g. "Sukkot I", "Pesach Shabbat Chol haMoed")
+# -> the slug of the holiday's article file
+HOLIDAY_READING_SLUGS = {
+    "rosh-hashana": "rosh-hashana",
+    "yom-kippur": "yom-kippur",
+    "sukkot": "sukkot",
+    "shmini-atzeret": "sukkot",
+    "simchat-torah": "sukkot",
+    "pesach": "pesach",
+    "shavuot": "shavuot",
+}
+
+
+def _parasha_slugs(parasha: str, rabbi_dir: Path) -> list[str]:
+    """Maps a Parasha or holiday reading name to the slugs of its local article files.
+
+    Holiday readings (e.g. Sefaria's "Sukkot I") map to their holiday's file. Combined readings
+    (e.g. "Matot-Masei") map to one slug per Parasha, but only when the whole name has no file
+    of its own, since some single names are hyphenated too (e.g. "Lech-Lecha").
+    """
+    slug = _slugify(parasha)
+    for prefix, holiday_slug in HOLIDAY_READING_SLUGS.items():
+        if slug.startswith(prefix):
+            return [holiday_slug]
+    slug = PARASHA_SLUG_ALIASES.get(slug, slug)
+    if (rabbi_dir / f"{slug}.json").exists() or "-" not in parasha:
+        return [slug]
+    parts = (_slugify(part) for part in parasha.split("-"))
+    return [PARASHA_SLUG_ALIASES.get(part, part) for part in parts]
+
+
 def _normalize_rabbi(rabbi: str) -> str:
     name = re.sub(r"[\s-]+", "_", rabbi.strip().lower())
     return re.sub(r"[^a-z0-9_]", "", name)
@@ -32,7 +69,8 @@ def _load_articles(parasha: str, rabbi: str) -> list[dict]:
     Reads from the local `res/parashot_articles/<rabbi>/` directory populated by the
     `scripts/fetch_*_articles.py` scripts, so it does not perform any network calls.
 
-    :param parasha: Name of the Parasha (e.g. "Vayera")
+    :param parasha: Name of the Parasha as in Sefaria's calendar (e.g. "Vayera"); a combined
+        reading (e.g. "Matot-Masei") returns the articles of both Parashot
     :param rabbi: Rabbi identifier as returned by `list_rabbis()` (e.g. "sacks"); spaces,
         hyphens and case are normalized, and a unique partial match (e.g. "rahav meir" or
         "Rabbi Shlomo Riskin") is accepted
@@ -48,12 +86,14 @@ def _load_articles(parasha: str, rabbi: str) -> list[dict]:
     if len(matches) != 1:
         raise ValueError(f"Unknown Rabbi '{rabbi}'. Available: {', '.join(rabbis)}")
 
-    articles_path = ARTICLES_DIR / matches[0] / f"{_slugify(parasha)}.json"
-    if not articles_path.exists():
-        return []
-
-    data = json.loads(articles_path.read_text(encoding="utf-8"))
-    return data.get("articles", [])
+    rabbi_dir = ARTICLES_DIR / matches[0]
+    articles = []
+    for slug in _parasha_slugs(parasha, rabbi_dir):
+        articles_path = rabbi_dir / f"{slug}.json"
+        if articles_path.exists():
+            data = json.loads(articles_path.read_text(encoding="utf-8"))
+            articles.extend(data.get("articles", []))
+    return articles
 
 
 def list_parasha_articles(parasha: str, rabbi: str) -> list[dict]:
