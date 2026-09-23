@@ -41,7 +41,7 @@ def build_parasha_message(parasha: str, description: str, dvar_torah: str, artic
     """
     return (
         f"*{parasha}*\n\n"
-        f"#*תקציר הפרשה*\n"
+        f"*תקציר הפרשה*\n"
         f"{description}\n\n"
         f"*דבר תורה*\n"
         f"{dvar_torah}\n\n"
