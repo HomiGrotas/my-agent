@@ -1,10 +1,10 @@
 import os
 
 import logfire
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ModelRetry
 
 from my_agent.tools.fetch_israeli_news import fetch_israeli_news
-from my_agent.tools.get_parasha_articles import get_parasha_articles
+from my_agent.tools.get_parasha_articles import get_parasha_articles, list_rabbis
 from my_agent.tools.send_whatsapp_message import send_whatsapp_message
 from my_agent.utils import build_parasha_message, get_coming_jewish_events
 
@@ -22,12 +22,15 @@ agent = Agent(
         f"Follow these steps in order:\n"
         f"1. **Gather current news** – Use your tool to fetch Israeli news headlines from the past week."
         f"Use the news in an optimistic way only. Use only articles relevant for the Parasha, no more than 3.\n"
-        f"2. **Gather Parasha source material** – Use your tool to fetch Rabbi Jonathan Sacks' "
-        f"\"Covenant & Conversation\" articles for the current Parasha, and draw on their themes and insights.\n"
+        f"2. **Gather Parasha source material** – Use your tool to fetch articles on the current Parasha "
+        f"written by the Rabbi requested by the user, and draw on their themes and insights. "
+        f"Available Rabbis: {', '.join(list_rabbis())}"
+        f"If the user did not name a Rabbi, use \"sacks\" "
+        f"(Rabbi Jonathan Sacks' \"Covenant & Conversation\").\n"
         f"3. **Write the דבר תורה** – Write a meaningful, insightful reflection that draws a thoughtful, "
         f"relevant connection between the Parasha and one or more current news events, and ends with a "
         f"practical lesson or question for reflection (דבר תורה style). It should be warm, respectful, "
-        f"accessible to a general Jewish audience, and concise enough for a text message (under 1300 words). "
+        f"accessible to a general Jewish audience, and concise enough for a text message (under 2500 words). "
         f"Do not write a title, headers, or a link yourself — write only the דבר תורה body text.\n"
         f"4. **Send the message** – Call your send tool with the דבר תורה text and the exact `url` field of "
         f"the Parasha article you drew from (if you used more than one, use the url of the first/primary one). "
@@ -59,13 +62,26 @@ def fetch_israeli_news_headlines(query: str = "Israel", max_articles: int = 100)
 
 
 @agent.tool_plain
-def fetch_parasha_articles(parasha: str) -> list[dict]:
-    """Fetch Rabbi Jonathan Sacks "Covenant & Conversation" articles for a Parasha to inform the message.
+def fetch_parasha_articles(parasha: str, rabbi: str = "sacks") -> list[dict]:
+    """Fetch a Rabbi's articles for a Parasha to inform the message.
 
-    :param parasha: Name of the Parasha (e.g. "Vayera")
+    :param parasha: Name of the Parasha in English transliteration (e.g. "Vayera")
+    :param rabbi: The Rabbi whose articles to fetch, as listed by `list_available_rabbis` (e.g. "sacks")
     :return: A list of articles with title, full text content, url and published date
     """
-    return get_parasha_articles(parasha)
+    try:
+        return get_parasha_articles(parasha, rabbi)
+    except ValueError as e:
+        raise ModelRetry(str(e)) from e
+
+
+@agent.tool_plain
+def list_available_rabbis() -> list[str]:
+    """List the Rabbis whose Parasha articles can be fetched.
+
+    :return: Rabbi identifiers accepted by `fetch_parasha_articles`
+    """
+    return list_rabbis()
 
 
 @agent.tool_plain
@@ -92,5 +108,9 @@ def run_agent():
     if not recipient_phone_number:
         print("No recipient phone number")
         exit(-1)
-    result = agent.run_sync(f"Send to {recipient_phone_number}")
+    rabbi = os.environ.get('RABBI')
+    prompt = f"Send to {recipient_phone_number}"
+    if rabbi:
+        prompt += f", based on articles by {rabbi}"
+    result = agent.run_sync(prompt)
     print(result.output)
