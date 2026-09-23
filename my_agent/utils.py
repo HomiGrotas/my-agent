@@ -26,6 +26,7 @@ def get_coming_jewish_events() -> dict:
 
     return {
         "parasha": parasha_item.get("displayValue", {}).get("he"),
+        "parasha_en": parasha_item.get("displayValue", {}).get("en"),
         "description": parasha_item.get("description", {}).get("he"),
     }
 
@@ -39,11 +40,9 @@ def build_parasha_message(parasha: str, description: str, dvar_torah: str, artic
     :param article_url: URL of the source article, appended on its own line
     :return: The fully formatted message text
     """
-    return (
-        f"*{parasha}*\n\n"
-        f"*תקציר הפרשה*\n"
-        f"{description}\n\n"
-        f"*דבר תורה*\n"
-        f"{dvar_torah}\n\n"
-        f"{article_url}"
-    )
+    message = f"*{parasha}*\n\n*תקציר הפרשה*\n{description}"
+    if dvar_torah:
+        message += f"\n\n*דבר תורה*\n{dvar_torah}"
+    if article_url:
+        message += f"\n\n{article_url}"
+    return message

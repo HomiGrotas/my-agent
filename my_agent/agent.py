@@ -4,7 +4,11 @@ import logfire
 from pydantic_ai import Agent, ModelRetry
 
 from my_agent.tools.fetch_israeli_news import fetch_israeli_news
-from my_agent.tools.get_parasha_articles import get_parasha_articles, list_rabbis
+from my_agent.tools.get_parasha_articles import (
+    get_parasha_article,
+    list_parasha_articles,
+    list_rabbis,
+)
 from my_agent.tools.send_whatsapp_message import send_whatsapp_message
 from my_agent.utils import build_parasha_message, get_coming_jewish_events
 
@@ -22,9 +26,9 @@ agent = Agent(
         f"Follow these steps in order:\n"
         f"1. **Gather current news** – Use your tool to fetch Israeli news headlines from the past week."
         f"Use the news in an optimistic way only. Use only articles relevant for the Parasha, no more than 3.\n"
-        f"2. **Gather Parasha source material** – Use your tool to fetch articles on the current Parasha "
-        f"written by the Rabbi requested by the user, and draw on their themes and insights. "
-        f"Available Rabbis: {', '.join(list_rabbis())}"
+        f"2. **Gather Parasha source material** – Use your tool to list the article previews on the current "
+        f"Parasha written by the Rabbi requested by the user, pick the 1-2 articles whose themes best fit "
+        f"the news you gathered, then read only those in full and draw on their themes and insights. "
         f"If the user did not name a Rabbi, use \"sacks\" "
         f"(Rabbi Jonathan Sacks' \"Covenant & Conversation\").\n"
         f"3. **Write the דבר תורה** – Write a meaningful, insightful reflection that draws a thoughtful, "
@@ -45,14 +49,16 @@ agent = Agent(
         f"{jewish_events}\n\n"
 
         f"The current Parasha and any upcoming holidays are listed above. "
-        f"If a major event is approaching, weave it into the message alongside the Parasha."
+        f"If a major event is approaching, weave it into the message alongside the Parasha.\n"
+        f"If `list_parasha_article_previews` returns an empty list, do NOT write about any other Parasha "
+        f"and do not write a דבר תורה — call the send tool with an empty `dvar_torah` and an empty `article_url`."
     ),
 )
 
 
 @agent.tool_plain
 def fetch_israeli_news_headlines(query: str = "Israel", max_articles: int = 100) -> list[dict]:
-    """Fetch Israeli news headlines from the past week to inform the Parasha message.
+    """Fetch Israeli news headlines from the past week to inform the Parasha message. Using English only
 
     :param query: Search terms to filter news by (defaults to "Israel")
     :param max_articles: Maximum number of articles to return (defaults to 100)
@@ -62,15 +68,32 @@ def fetch_israeli_news_headlines(query: str = "Israel", max_articles: int = 100)
 
 
 @agent.tool_plain
-def fetch_parasha_articles(parasha: str, rabbi: str = "sacks") -> list[dict]:
-    """Fetch a Rabbi's articles for a Parasha to inform the message.
+def list_parasha_article_previews(rabbi: str = "sacks") -> list[dict]:
+    """List a Rabbi's articles for this week's Parasha as short previews, to choose which ones to read.
 
-    :param parasha: Name of the Parasha in English transliteration (e.g. "Vayera")
-    :param rabbi: The Rabbi whose articles to fetch, as listed by `list_available_rabbis` (e.g. "sacks")
-    :return: A list of articles with title, full text content, url and published date
+    :param rabbi: The Rabbi whose articles to list, as listed by `list_available_rabbis` (e.g. "sacks")
+    :return: A list of articles with index, title, a short text preview and published date;
+        empty if there are no articles for this week's Parasha
+    """
+    parasha = jewish_events.get("parasha_en")
+    if not parasha:
+        return []
+    try:
+        return list_parasha_articles(parasha, rabbi)
+    except ValueError as e:
+        raise ModelRetry(str(e)) from e
+
+
+@agent.tool_plain
+def read_parasha_article(index: int, rabbi: str = "sacks") -> dict:
+    """Read the full text of one of a Rabbi's articles for this week's Parasha.
+
+    :param index: Index of the article as returned by `list_parasha_article_previews`
+    :param rabbi: The Rabbi whose article to read, as listed by `list_available_rabbis` (e.g. "sacks")
+    :return: The article with title, full text, url and published date
     """
     try:
-        return get_parasha_articles(parasha, rabbi)
+        return get_parasha_article(jewish_events.get("parasha_en", ""), rabbi, index)
     except ValueError as e:
         raise ModelRetry(str(e)) from e
 
@@ -79,7 +102,7 @@ def fetch_parasha_articles(parasha: str, rabbi: str = "sacks") -> list[dict]:
 def list_available_rabbis() -> list[str]:
     """List the Rabbis whose Parasha articles can be fetched.
 
-    :return: Rabbi identifiers accepted by `fetch_parasha_articles`
+    :return: Rabbi identifiers accepted by `list_parasha_article_previews` and `read_parasha_article`
     """
     return list_rabbis()
 

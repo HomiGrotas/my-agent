@@ -23,7 +23,10 @@ def list_rabbis() -> list[str]:
     return sorted(path.name for path in ARTICLES_DIR.iterdir() if path.is_dir())
 
 
-def get_parasha_articles(parasha: str, rabbi: str) -> list[dict]:
+PREVIEW_CHARS = 400
+
+
+def _load_articles(parasha: str, rabbi: str) -> list[dict]:
     """Loads previously downloaded Parasha articles written by the given Rabbi.
 
     Reads from the local `res/parashot_articles/<rabbi>/` directory populated by the
@@ -33,7 +36,7 @@ def get_parasha_articles(parasha: str, rabbi: str) -> list[dict]:
     :param rabbi: Rabbi identifier as returned by `list_rabbis()` (e.g. "sacks"); spaces,
         hyphens and case are normalized, and a unique partial match (e.g. "rahav meir" or
         "Rabbi Shlomo Riskin") is accepted
-    :return: A list of articles, each with title, full text content, url and published date;
+    :return: A list of articles, each with title, text, url and published date;
         empty if no local file exists for the Parasha
     :raises ValueError: If no single Rabbi matches the given name
     """
@@ -51,3 +54,42 @@ def get_parasha_articles(parasha: str, rabbi: str) -> list[dict]:
 
     data = json.loads(articles_path.read_text(encoding="utf-8"))
     return data.get("articles", [])
+
+
+def list_parasha_articles(parasha: str, rabbi: str) -> list[dict]:
+    """Lists a Rabbi's articles for a Parasha as short previews, without their full text.
+
+    :param parasha: Name of the Parasha (e.g. "Vayera")
+    :param rabbi: Rabbi identifier, matched as in `_load_articles()`
+    :return: A list of articles, each with index, title, a short text preview and published date;
+        empty if no local file exists for the Parasha
+    :raises ValueError: If no single Rabbi matches the given name
+    """
+    return [
+        {
+            "index": index,
+            "title": article.get("title"),
+            "preview": article.get("text", "")[:PREVIEW_CHARS],
+            "published_at": article.get("published_at"),
+        }
+        for index, article in enumerate(_load_articles(parasha, rabbi))
+    ]
+
+
+def get_parasha_article(parasha: str, rabbi: str, index: int) -> dict:
+    """Loads a single full article by its index from `list_parasha_articles()`.
+
+    :param parasha: Name of the Parasha (e.g. "Vayera")
+    :param rabbi: Rabbi identifier, matched as in `_load_articles()`
+    :param index: Index of the article as returned by `list_parasha_articles()`
+    :return: The article with title, text, url and published date
+    :raises ValueError: If no single Rabbi matches the given name or the index is out of range
+    """
+    articles = _load_articles(parasha, rabbi)
+    if not 0 <= index < len(articles):
+        raise ValueError(
+            f"No article at index {index} for Parasha '{parasha}' by '{rabbi}'. "
+            f"Valid indexes: 0-{len(articles) - 1}" if articles else
+            f"No articles found for Parasha '{parasha}' by '{rabbi}'"
+        )
+    return articles[index]
