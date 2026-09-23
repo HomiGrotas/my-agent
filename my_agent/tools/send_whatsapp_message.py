@@ -38,11 +38,9 @@ def send_whatsapp_message(recipient_phone: str, message_text: str) -> dict:
         "recipient_type": "individual",
         "to": recipient_phone,
         "type": "text",
-        "text": {"preview_url": False, "body": message_text},
+        "text": {"preview_url": True, "body": message_text},
     }
 
     response = requests.post(url, headers=headers, json=payload)
     response.raise_for_status()
     return response.json()
-
-
