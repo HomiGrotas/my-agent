@@ -53,14 +53,17 @@ So, I need to research solutions, such as LangGraph and Pydantic AI.
 # Phase 3 - building an AI agent using Pydantic AI
 
 ## Goal
-Now the agent has a real goal - send a personalized WhatsApp message about the weekly Parashat HaShavua, connecting it to this week's news in Israel.
+Now the agent has a real goal - send a personalized WhatsApp (or Telegram) message about the weekly Parashat HaShavua, connecting it to this week's news in Israel.
 
 ## Setup
 The agent runs as a single task (no chat loop), so everything is configured using environment variables:
 * `GEMINI_API_KEY` - the model provider key
 * `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` - Meta WhatsApp Cloud API credentials
 * `NEWS_API_KEY` - [NewsAPI](https://newsapi.org) key
-* `RECIPIENT_PHONE_NUMBER` - who gets the message
+* `RECIPIENT_PHONE_NUMBER` - who gets the WhatsApp message (comma-separated for several numbers)
+* `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` - Telegram bot (from [@BotFather](https://t.me/BotFather)) and who gets the Telegram message (comma-separated chat IDs; each recipient must start the bot first). Anyone who messaged the bot in the last 24 hours also gets the message (doesn't work if the bot has a webhook set)
+
+The message is sent to every recipient of every channel that has recipients - WhatsApp, Telegram, or both.
 * `RABBI` (optional) - whose articles to base the message on (defaults to Rabbi Sacks)
 
 Then run:
@@ -117,5 +120,5 @@ How do you debug an agent? You can't just look at the final output - you need to
 I use [Logfire](https://pydantic.dev/logfire) (`logfire.instrument_pydantic_ai()`) to trace every model call, tool call and its arguments.
 
 ### From chatbot to autonomous task
-The agent doesn't chat anymore. It gets a single goal ("send to X, based on Rabbi Y") and runs the whole workflow by itself.
+The agent doesn't chat anymore. It gets a single goal ("send this week's message, based on Rabbi Y") and runs the whole workflow by itself.
 Chat is just one way to use an agent - a background task that can be scheduled is another.

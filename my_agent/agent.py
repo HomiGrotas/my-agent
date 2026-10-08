@@ -9,6 +9,7 @@ from my_agent.tools.get_parasha_articles import (
     list_parasha_articles,
     list_rabbis,
 )
+from my_agent.tools.send_telegram_message import get_recent_telegram_chat_ids, send_telegram_message
 from my_agent.tools.send_whatsapp_message import send_whatsapp_message
 from my_agent.utils import build_parasha_message, get_coming_jewish_events
 
@@ -17,10 +18,17 @@ logfire.instrument_pydantic_ai()
 
 jewish_events = get_coming_jewish_events()
 
+# Each channel's recipients env var (comma-separated); a channel is used whenever it has recipients.
+# Telegram also sends to users who messaged the bot in the last ~24h.
+CHANNEL_RECIPIENT_ENV_VARS = {
+    "whatsapp": "RECIPIENT_PHONE_NUMBER",
+    "telegram": "TELEGRAM_CHAT_ID",
+}
+
 agent = Agent(
     'google:gemini-3.5-flash-lite',
     instructions=(
-        f"You are a Jewish assistant that delivers personalized Parashat HaShavua (weekly Torah portion) messages via WhatsApp.\n\n"
+        f"You are a Jewish assistant that delivers personalized Parashat HaShavua (weekly Torah portion) messages via WhatsApp and/or Telegram.\n\n"
 
         f"## Your Workflow\n"
         f"Follow these steps in order:\n"
@@ -107,32 +115,66 @@ def list_available_rabbis() -> list[str]:
     return list_rabbis()
 
 
-@agent.tool_plain
-def send_parasha_whatsapp(recipient_phone: str, dvar_torah: str, article_url: str) -> str:
-    """Assemble the Parasha message from its template and send it via WhatsApp.
+def _parse_recipients(value: str | None) -> list[str]:
+    """Splits a comma-separated recipients string into a list, dropping empty entries."""
+    return [recipient.strip() for recipient in (value or "").split(",") if recipient.strip()]
 
-    :param recipient_phone: Recipient's phone number in international format (e.g. +14155552671)
+
+def _get_recipients() -> dict[str, list[str]]:
+    """Returns each channel that has recipients, mapped to its unique recipients."""
+    recipients = {
+        channel: _parse_recipients(os.environ.get(env_var))
+        for channel, env_var in CHANNEL_RECIPIENT_ENV_VARS.items()
+    }
+    if os.environ.get("TELEGRAM_BOT_TOKEN"):
+        recipients["telegram"] += get_recent_telegram_chat_ids()
+    return {
+        channel: list(dict.fromkeys(channel_recipients))
+        for channel, channel_recipients in recipients.items()
+        if channel_recipients
+    }
+
+
+@agent.tool_plain
+def send_parasha_message(dvar_torah: str, article_url: str) -> str:
+    """Assemble the Parasha message from its template and send it to the configured recipients.
+
     :param dvar_torah: The דבר תורה reflection text connecting the Parasha to current events
     :param article_url: URL of the source Parasha article, appended to the message
-    :return: A confirmation string describing the result
+    :return: A confirmation string describing the result for each recipient
     """
-    message_text = build_parasha_message(
-        parasha=jewish_events.get("parasha"),
-        description=jewish_events.get("description"),
-        dvar_torah=dvar_torah,
-        article_url=article_url,
-    )
-    response = send_whatsapp_message(recipient_phone, message_text)
-    return f"Message sent successfully: {response}"
+    results = []
+    for channel, recipients in _get_recipients().items():
+        message_text = build_parasha_message(
+            parasha=jewish_events.get("parasha"),
+            description=jewish_events.get("description"),
+            dvar_torah=dvar_torah,
+            article_url=article_url,
+            style=channel,
+        )
+        for recipient in recipients:
+            try:
+                if channel == "telegram":
+                    send_telegram_message(recipient, message_text)
+                elif channel == "whatsapp":
+                    send_whatsapp_message(recipient, message_text)
+                else:
+                    raise NotImplementedError(f"Unknown channel '{channel}'")
+                results.append(f"{channel} {recipient}: sent")
+            except Exception as e:
+                results.append(f"{channel} {recipient}: failed: {e}")
+    return "\n".join(results)
 
 
 def run_agent():
-    recipient_phone_number = os.environ.get('RECIPIENT_PHONE_NUMBER')
-    if not recipient_phone_number:
-        print("No recipient phone number")
+    if not _get_recipients():
+        print(
+            f"No recipient - set at least one of: {', '.join(CHANNEL_RECIPIENT_ENV_VARS.values())}, "
+            f"or message the Telegram bot"
+        )
         exit(-1)
     rabbi = os.environ.get('RABBI')
-    prompt = f"Send to {recipient_phone_number}"
+    prompt = "Send this week's Parasha message"
     if rabbi:
         prompt += f", based on articles by {rabbi}"
     result = agent.run_sync(prompt)

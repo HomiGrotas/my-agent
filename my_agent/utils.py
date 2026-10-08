@@ -1,3 +1,5 @@
+import html
+
 import requests
 
 SEFARIA_CALENDARS_URL = "https://www.sefaria.org/api/calendars"
@@ -31,18 +33,31 @@ def get_coming_jewish_events() -> dict:
     }
 
 
-def build_parasha_message(parasha: str, description: str, dvar_torah: str, article_url: str) -> str:
-    """Assembles the final WhatsApp message from its fixed parts.
+def build_parasha_message(
+    parasha: str, description: str, dvar_torah: str, article_url: str, style: str = "whatsapp"
+) -> str:
+    """Assembles the final message from its fixed parts.
 
     :param parasha: The Parasha's name
     :param description: The Parasha's short description ("תקציר הפרשה")
     :param dvar_torah: The LLM-generated reflection text ("דבר תורה")
     :param article_url: URL of the source article, appended on its own line
+    :param style: Formatting of the target channel - "whatsapp" (`*bold*`) or "telegram" (HTML)
     :return: The fully formatted message text
     """
-    message = f"*{parasha}*\n\n*תקציר הפרשה*\n{description}"
+    if style == "telegram":
+        def bold(text):
+            return f"<b>{text}</b>"
+        parasha, description, dvar_torah, article_url = (
+            html.escape(part or "") for part in (parasha, description, dvar_torah, article_url)
+        )
+    else:
+        def bold(text):
+            return f"*{text}*"
+
+    message = f"{bold(parasha)}\n\n{bold('תקציר הפרשה')}\n{description}"
     if dvar_torah:
-        message += f"\n\n*דבר תורה*\n{dvar_torah}"
+        message += f"\n\n{bold('דבר תורה')}\n{dvar_torah}"
     if article_url:
         message += f"\n\n{article_url}"
     return message
