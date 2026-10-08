@@ -2,6 +2,10 @@
 .idea
 scripts/
 res/parashot_articles/
+whatsapp/node_modules/
+whatsapp/.wwebjs_auth/
+whatsapp/.wwebjs_cache/
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

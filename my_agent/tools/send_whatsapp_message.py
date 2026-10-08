@@ -1,46 +1,38 @@
-import os
-import requests
+import json
+import shutil
+import subprocess
+from pathlib import Path
 
-# API Configuration
-API_VERSION = "v26.0"
-
-
-def _get_credentials():
-    """Helper function to load environment variables."""
-    access_token = os.environ.get("WHATSAPP_ACCESS_TOKEN")
-    phone_number_id = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
-
-    if not access_token or not phone_number_id:
-        raise ValueError(
-            "Missing required environment variables: "
-            "WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID"
-        )
-    return access_token, phone_number_id
+# Node script that sends the messages through whatsapp-web.js
+SENDER_SCRIPT = Path(__file__).resolve().parents[2] / "whatsapp" / "send.js"
+# Starting WhatsApp Web takes a while, and a first-time login waits for a QR code scan
+TIMEOUT_SECONDS = 10 * 60
 
 
-def send_whatsapp_message(recipient_phone: str, message_text: str) -> dict:
-    """Sends a WhatsApp text message to an individual phone number.
+def send_whatsapp_messages(recipient_phones: list[str], message_text: str) -> dict[str, str | None]:
+    """Sends a WhatsApp text message to several phone numbers via whatsapp-web.js.
 
-    :param recipient_phone: Recipient's phone number
-    :param message_text: The message body text to send
-    :return: Response JSON from Meta API
+    All recipients share a single WhatsApp Web session, which must have been linked beforehand
+    with `node whatsapp/send.js --login`.
+
+    :param recipient_phones: Recipients' phone numbers, in international format
+    :param message_text: The message body text to send, in WhatsApp formatting
+    :return: Each recipient mapped to None if the message was sent, or to an error message
     """
-    access_token, phone_number_id = _get_credentials()
-    url = f"https://graph.facebook.com/{API_VERSION}/{phone_number_id}/messages"
+    node = shutil.which("node")
+    if not node:
+        raise ValueError("Node.js is required to send WhatsApp messages, but `node` was not found")
+    if not (SENDER_SCRIPT.parent / "node_modules").is_dir():
+        raise ValueError(f"WhatsApp sender dependencies are missing - run `npm install` in {SENDER_SCRIPT.parent}")
 
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": recipient_phone,
-        "type": "text",
-        "text": {"preview_url": True, "body": message_text},
-    }
-
-    response = requests.post(url, headers=headers, json=payload)
-    response.raise_for_status()
-    return response.json()
+    # stderr is inherited, so the sender's logs (and a QR code, if login is needed) show up in the terminal
+    process = subprocess.run(
+        [node, str(SENDER_SCRIPT)],
+        input=json.dumps({"recipients": recipient_phones, "message": message_text}),
+        stdout=subprocess.PIPE,
+        text=True,
+        timeout=TIMEOUT_SECONDS,
+    )
+    if process.returncode != 0:
+        raise RuntimeError(f"WhatsApp sender failed with exit code {process.returncode}")
+    return json.loads(process.stdout)

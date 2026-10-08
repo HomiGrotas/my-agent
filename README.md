@@ -58,13 +58,22 @@ Now the agent has a real goal - send a personalized WhatsApp (or Telegram) messa
 ## Setup
 The agent runs as a single task (no chat loop), so everything is configured using environment variables:
 * `GEMINI_API_KEY` - the model provider key
-* `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` - Meta WhatsApp Cloud API credentials
 * `NEWS_API_KEY` - [NewsAPI](https://newsapi.org) key
 * `RECIPIENT_PHONE_NUMBER` - who gets the WhatsApp message (comma-separated for several numbers)
-* `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` - Telegram bot (from [@BotFather](https://t.me/BotFather)) and who gets the Telegram message (comma-separated chat IDs; each recipient must start the bot first). Anyone who messaged the bot in the last 24 hours also gets the message (doesn't work if the bot has a webhook set)
+* `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` - Telegram bot (from [@BotFather](https://t.me/BotFather)) and who gets the Telegram message (comma-separated chat IDs; each recipient must start the bot first). Anyone who ever messaged the bot also gets the message: each run adds users who messaged it in the last 24 hours to `data/telegram_subscribers.json` (or `TELEGRAM_SUBSCRIBERS_FILE`), so they keep getting it in later weeks (doesn't work if the bot has a webhook set)
+* `DEV_MODE` (optional) - set to `true` to send only to the recipients configured above, skipping the stored Telegram subscribers (new subscribers are still saved)
 
 The message is sent to every recipient of every channel that has recipients - WhatsApp, Telegram, or both.
 * `RABBI` (optional) - whose articles to base the message on (defaults to Rabbi Sacks)
+
+WhatsApp messages are sent from your own WhatsApp account using [whatsapp-web.js](https://github.com/wwebjs/whatsapp-web.js) (it drives WhatsApp Web in a headless browser), so it requires Node.js 18+. Install it and link your account once by scanning the QR code (WhatsApp > Linked devices > Link a device):
+```
+cd whatsapp
+npm install
+npm run login
+```
+The session is saved in `whatsapp/.wwebjs_auth` (or `WHATSAPP_SESSION_DIR`), so you only need to scan once.
+> whatsapp-web.js is unofficial - WhatsApp may block accounts that look like bots, so keep the recipient list small.
 
 Then run:
 ```

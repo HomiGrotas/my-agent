@@ -9,8 +9,8 @@ from my_agent.tools.get_parasha_articles import (
     list_parasha_articles,
     list_rabbis,
 )
-from my_agent.tools.send_telegram_message import get_recent_telegram_chat_ids, send_telegram_message
-from my_agent.tools.send_whatsapp_message import send_whatsapp_message
+from my_agent.tools.send_telegram_message import send_telegram_message, update_telegram_subscribers
+from my_agent.tools.send_whatsapp_message import send_whatsapp_messages
 from my_agent.utils import build_parasha_message, get_coming_jewish_events
 
 logfire.configure(service_name="my-agent")
@@ -19,11 +19,14 @@ logfire.instrument_pydantic_ai()
 jewish_events = get_coming_jewish_events()
 
 # Each channel's recipients env var (comma-separated); a channel is used whenever it has recipients.
-# Telegram also sends to users who messaged the bot in the last ~24h.
+# Telegram also sends to every user who ever messaged the bot (stored subscribers), unless in dev mode.
 CHANNEL_RECIPIENT_ENV_VARS = {
     "whatsapp": "RECIPIENT_PHONE_NUMBER",
     "telegram": "TELEGRAM_CHAT_ID",
 }
+
+# Dev mode sends only to the recipients configured in the env vars above (new subscribers are still stored).
+DEV_MODE = os.environ.get("DEV_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 agent = Agent(
     'google:gemini-3.5-flash-lite',
@@ -127,7 +130,9 @@ def _get_recipients() -> dict[str, list[str]]:
         for channel, env_var in CHANNEL_RECIPIENT_ENV_VARS.items()
     }
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
-        recipients["telegram"] += get_recent_telegram_chat_ids()
+        subscribers = update_telegram_subscribers()
+        if not DEV_MODE:
+            recipients["telegram"] += subscribers
     return {
         channel: list(dict.fromkeys(channel_recipients))
         for channel, channel_recipients in recipients.items()
@@ -152,12 +157,20 @@ def send_parasha_message(dvar_torah: str, article_url: str) -> str:
             article_url=article_url,
             style=channel,
         )
+        if channel == "whatsapp":
+            # One WhatsApp Web session sends to all recipients, as starting it is slow
+            try:
+                errors = send_whatsapp_messages(recipients, message_text)
+            except Exception as e:
+                errors = {recipient: str(e) for recipient in recipients}
+            for recipient in recipients:
+                error = errors.get(recipient, "no result from the WhatsApp sender")
+                results.append(f"{channel} {recipient}: " + (f"failed: {error}" if error else "sent"))
+            continue
         for recipient in recipients:
             try:
                 if channel == "telegram":
                     send_telegram_message(recipient, message_text)
-                elif channel == "whatsapp":
-                    send_whatsapp_message(recipient, message_text)
                 else:
                     raise NotImplementedError(f"Unknown channel '{channel}'")
                 results.append(f"{channel} {recipient}: sent")
@@ -169,8 +182,8 @@ def send_parasha_message(dvar_torah: str, article_url: str) -> str:
 def run_agent():
     if not _get_recipients():
         print(
-            f"No recipient - set at least one of: {', '.join(CHANNEL_RECIPIENT_ENV_VARS.values())}, "
-            f"or message the Telegram bot"
+            f"No recipient - set at least one of: {', '.join(CHANNEL_RECIPIENT_ENV_VARS.values())}"
+            + ("" if DEV_MODE else ", or message the Telegram bot")
         )
         exit(-1)
     rabbi = os.environ.get('RABBI')

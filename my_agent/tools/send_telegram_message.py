@@ -1,8 +1,14 @@
+import json
 import os
+from pathlib import Path
+
 import requests
 
 # Telegram Bot API limit for a single message's text
 MAX_MESSAGE_LENGTH = 4096
+
+# Every user who ever messaged the bot, kept across runs (Telegram only keeps updates for ~24h)
+DEFAULT_SUBSCRIBERS_FILE = Path(__file__).resolve().parents[2] / "data" / "telegram_subscribers.json"
 
 
 def _get_credentials():
@@ -59,6 +65,36 @@ def get_recent_telegram_chat_ids() -> list[str]:
         if chat.get("type") == "private":
             chat_ids.append(str(chat["id"]))
     return list(dict.fromkeys(chat_ids))
+
+
+def _get_subscribers_file() -> Path:
+    return Path(os.environ.get("TELEGRAM_SUBSCRIBERS_FILE") or DEFAULT_SUBSCRIBERS_FILE)
+
+
+def load_telegram_subscribers() -> list[str]:
+    """Returns the stored chat IDs of every user who messaged the bot (empty if none are stored yet)."""
+    subscribers_file = _get_subscribers_file()
+    if not subscribers_file.exists():
+        return []
+    return [str(chat_id) for chat_id in json.loads(subscribers_file.read_text())]
+
+
+def update_telegram_subscribers() -> list[str]:
+    """Adds the users who recently messaged the bot to the stored subscribers and saves them.
+
+    :return: All stored subscriber chat IDs, including the newly added ones
+    """
+    subscribers = load_telegram_subscribers()
+    new_subscribers = [chat_id for chat_id in get_recent_telegram_chat_ids() if chat_id not in subscribers]
+    if new_subscribers:
+        subscribers += new_subscribers
+        subscribers_file = _get_subscribers_file()
+        subscribers_file.parent.mkdir(parents=True, exist_ok=True)
+        # Write then rename, so a crash mid-write can't wipe the stored subscribers
+        tmp_file = subscribers_file.with_suffix(".tmp")
+        tmp_file.write_text(json.dumps(subscribers, indent=2))
+        tmp_file.replace(subscribers_file)
+    return subscribers
 
 
 def send_telegram_message(chat_id: str, message_text: str) -> list[dict]:

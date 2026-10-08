@@ -9,4 +9,6 @@ WorkingDirectory=__APP_DIR__
 ExecStart=/usr/bin/docker run --rm --name my-agent \
     --env-file __APP_DIR__/.env \
     -v __APP_DIR__/.logfire:/app/.logfire:ro \
+    -v __APP_DIR__/.wwebjs_auth:/app/whatsapp/.wwebjs_auth \
+    -v __APP_DIR__/data:/app/data \
     my-agent:latest

@@ -8,3 +8,7 @@ scripts
 deploy
 **/__pycache__
 *.pyc
+whatsapp/node_modules
+whatsapp/.wwebjs_auth
+whatsapp/.wwebjs_cache
+data
