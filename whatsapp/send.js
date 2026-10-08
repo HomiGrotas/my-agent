@@ -34,6 +34,8 @@ function createClient() {
         authStrategy: new LocalAuth({
             dataPath: process.env.WHATSAPP_SESSION_DIR || path.join(__dirname, ".wwebjs_auth"),
         }),
+        // Cache the WhatsApp Web page next to this script, not in whatever directory we were started from
+        webVersionCache: { type: "local", path: path.join(__dirname, ".wwebjs_cache") },
         puppeteer: {
             headless: true,
             // Uses PUPPETEER_EXECUTABLE_PATH when set (e.g. the system Chromium in Docker)

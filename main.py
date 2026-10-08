@@ -1,5 +1,5 @@
-from my_agent import run_agent
+from my_agent import main
 
 
 if __name__ == '__main__':
-    run_agent()
+    main()

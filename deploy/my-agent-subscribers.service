@@ -1,0 +1,12 @@
+[Unit]
+Description=Store new Telegram subscribers of the Parasha agent (no message is sent)
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=__APP_DIR__
+ExecStart=/usr/bin/docker run --rm --name my-agent-subscribers \
+    --env-file __APP_DIR__/.env \
+    -v __APP_DIR__/data:/app/data \
+    my-agent:latest /app/.venv/bin/python main.py --collect-telegram-subscribers

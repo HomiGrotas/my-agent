@@ -19,7 +19,8 @@ logfire.instrument_pydantic_ai()
 jewish_events = get_coming_jewish_events()
 
 # Each channel's recipients env var (comma-separated); a channel is used whenever it has recipients.
-# Telegram also sends to every user who ever messaged the bot (stored subscribers), unless in dev mode.
+# Telegram also sends to every user who messaged the bot (stored subscribers), unless in dev mode,
+# and never to users who unsubscribed with /stop.
 CHANNEL_RECIPIENT_ENV_VARS = {
     "whatsapp": "RECIPIENT_PHONE_NUMBER",
     "telegram": "TELEGRAM_CHAT_ID",
@@ -130,9 +131,13 @@ def _get_recipients() -> dict[str, list[str]]:
         for channel, env_var in CHANNEL_RECIPIENT_ENV_VARS.items()
     }
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
-        subscribers = update_telegram_subscribers()
+        subscription = update_telegram_subscribers()
         if not DEV_MODE:
-            recipients["telegram"] += subscribers
+            recipients["telegram"] += subscription["subscribers"]
+        # Users who sent /stop to the bot don't get messages, even if they're in TELEGRAM_CHAT_ID
+        recipients["telegram"] = [
+            chat_id for chat_id in recipients["telegram"] if chat_id not in subscription["unsubscribed"]
+        ]
     return {
         channel: list(dict.fromkeys(channel_recipients))
         for channel, channel_recipients in recipients.items()

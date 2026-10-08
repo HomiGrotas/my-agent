@@ -42,7 +42,8 @@ def build_parasha_message(
     :param description: The Parasha's short description ("תקציר הפרשה")
     :param dvar_torah: The LLM-generated reflection text ("דבר תורה")
     :param article_url: URL of the source article, appended on its own line
-    :param style: Formatting of the target channel - "whatsapp" (`*bold*`) or "telegram" (HTML)
+    :param style: Formatting of the target channel - "whatsapp" (`*bold*`) or "telegram" (HTML, ending
+        with how to unsubscribe from the bot)
     :return: The fully formatted message text
     """
     if style == "telegram":
@@ -60,4 +61,6 @@ def build_parasha_message(
         message += f"\n\n{bold('דבר תורה')}\n{dvar_torah}"
     if article_url:
         message += f"\n\n{article_url}"
+    if style == "telegram":
+        message += "\n\nלהסרה מרשימת התפוצה שלחו /stop"
     return message
