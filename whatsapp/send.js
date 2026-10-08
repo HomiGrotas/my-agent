@@ -73,6 +73,28 @@ function waitForReady(client) {
     });
 }
 
+// Newer WhatsApp Web builds no longer expose MsgKey._serialized, which whatsapp-web.js relies on
+// (sendMessage then returns undefined and chat lookups fail). Restores it from toString(), as in
+// the not-yet-merged upstream fix https://github.com/wwebjs/whatsapp-web.js/pull/201901
+async function patchMsgKeySerialized(client) {
+    await client.pupPage.evaluate(() => {
+        const proto = window.require("WAWebMsgKey").prototype;
+        if ("_serialized" in proto) return;
+        Object.defineProperty(proto, "_serialized", {
+            configurable: true,
+            get() {
+                return this.toString();
+            },
+            // Builds that still assign _serialized keep their own value
+            set(value) {
+                Object.defineProperty(this, "_serialized", {
+                    value, writable: true, configurable: true, enumerable: true,
+                });
+            },
+        });
+    });
+}
+
 // Resolves once the server acknowledged the message, so closing the browser doesn't drop it
 function waitForAck(client, message) {
     return new Promise((resolve, reject) => {
@@ -98,6 +120,9 @@ async function sendMessage(client, recipient, text) {
         throw new Error(`${recipient} is not registered on WhatsApp`);
     }
     const message = await client.sendMessage(numberId._serialized, text, { linkPreview: true });
+    if (!message) {
+        throw new Error("WhatsApp Web didn't return the sent message, so its delivery is unknown");
+    }
     await waitForAck(client, message);
 }
 
@@ -108,6 +133,7 @@ async function main() {
     const client = createClient();
     try {
         await waitForReady(client);
+        await patchMsgKeySerialized(client);
         log("Ready");
         if (login) return;
 
