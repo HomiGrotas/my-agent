@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Parasha WhatsApp agent every Friday 08:00 Israel time
+
+[Timer]
+OnCalendar=Fri *-*-* 08:00:00 Asia/Jerusalem
+# If the server was down at 08:00, run once as soon as it's back up
+Persistent=true
+
+[Install]
+WantedBy=timers.target

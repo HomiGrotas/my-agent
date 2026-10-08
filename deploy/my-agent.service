@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly Parasha WhatsApp agent
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=__APP_DIR__
+ExecStart=/usr/bin/docker run --rm --name my-agent \
+    --env-file __APP_DIR__/.env \
+    -v __APP_DIR__/.logfire:/app/.logfire:ro \
+    my-agent:latest

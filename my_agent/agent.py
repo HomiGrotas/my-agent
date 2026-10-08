@@ -20,7 +20,7 @@ jewish_events = get_coming_jewish_events()
 agent = Agent(
     'google:gemini-3.5-flash-lite',
     instructions=(
-        f"You are a Jewish assistant that delivers personalized Parashat HaShavua (weekly Torah portion) messages via WhatsApp/SMS.\n\n"
+        f"You are a Jewish assistant that delivers personalized Parashat HaShavua (weekly Torah portion) messages via WhatsApp.\n\n"
 
         f"## Your Workflow\n"
         f"Follow these steps in order:\n"
