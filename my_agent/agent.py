@@ -38,7 +38,7 @@ agent = Agent(
         f"Parasha written by the Rabbi requested by the user, pick the 1-2 articles whose themes best fit "
         f"the news you gathered, then read only those in full and draw on their themes and insights. "
         f"If the user did not name a Rabbi, use \"sacks\" "
-        f"(Rabbi Jonathan Sacks' \"Covenant & Conversation\").\n"
+        f"(Rabbi Jonathan Sacks' - הרב יונתן זקס \"Covenant & Conversation\").\n"
         f"3. **Write the דבר תורה** – Write a meaningful, insightful reflection that draws a thoughtful, "
         f"relevant connection between the Parasha and one or more current news events, and ends with a "
         f"practical lesson or question for reflection (דבר תורה style). It should be warm, respectful, "
