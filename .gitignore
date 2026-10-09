@@ -5,6 +5,7 @@ res/parashot_articles/
 whatsapp/node_modules/
 whatsapp/.wwebjs_auth/
 whatsapp/.wwebjs_cache/
+.wwebjs_auth/
 data/
 
 # Byte-compiled / optimized / DLL files
