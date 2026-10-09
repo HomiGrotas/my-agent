@@ -1,9 +1,11 @@
 // Sends a WhatsApp text message to several recipients using whatsapp-web.js (WhatsApp Web automation).
 //
 // Usage:
-//   node send.js --login   Link a WhatsApp account by scanning the QR code printed to the terminal, then exit
-//   node send.js           Read {"recipients": [...], "message": "..."} as JSON from stdin, send the message to
-//                          every recipient, and print {"<recipient>": null | "<error>"} as JSON to stdout
+//   node send.js --login         Link a WhatsApp account by scanning the QR code printed to the terminal, then exit
+//   node send.js --list-groups   Print "<group id>\t<group name>" for every group the linked account is in
+//   node send.js                 Read {"recipients": [...], "message": "..."} as JSON from stdin, send the message
+//                                to every recipient (a phone number or a "<id>@g.us" group ID), and print
+//                                {"<recipient>": null | "<error>"} as JSON to stdout
 //
 // The linked session is saved in WHATSAPP_SESSION_DIR (default: .wwebjs_auth next to this file), so the QR
 // code only has to be scanned once. All logs go to stderr, stdout carries only the JSON result.
@@ -113,13 +115,25 @@ function waitForAck(client, message) {
     });
 }
 
-async function sendMessage(client, recipient, text) {
-    const number = recipient.replace(/\D/g, "");
-    const numberId = await client.getNumberId(number);
+// Resolves a recipient (a phone number or a "<id>@g.us" group ID) to its WhatsApp chat ID
+async function getChatId(client, recipient) {
+    if (recipient.endsWith("@g.us")) {
+        const chat = await client.getChatById(recipient).catch(() => null);
+        if (!chat || !chat.isGroup) {
+            throw new Error(`${recipient} is not a group this account is in`);
+        }
+        return chat.id._serialized;
+    }
+    const numberId = await client.getNumberId(recipient.replace(/\D/g, ""));
     if (!numberId) {
         throw new Error(`${recipient} is not registered on WhatsApp`);
     }
-    const message = await client.sendMessage(numberId._serialized, text, { linkPreview: true });
+    return numberId._serialized;
+}
+
+async function sendMessage(client, recipient, text) {
+    const chatId = await getChatId(client, recipient);
+    const message = await client.sendMessage(chatId, text, { linkPreview: true });
     if (!message) {
         throw new Error("WhatsApp Web didn't return the sent message, so its delivery is unknown");
     }
@@ -128,7 +142,8 @@ async function sendMessage(client, recipient, text) {
 
 async function main() {
     const login = process.argv.includes("--login");
-    const request = login ? null : JSON.parse(await readStdin());
+    const listGroups = process.argv.includes("--list-groups");
+    const request = login || listGroups ? null : JSON.parse(await readStdin());
 
     const client = createClient();
     try {
@@ -136,6 +151,13 @@ async function main() {
         await patchMsgKeySerialized(client);
         log("Ready");
         if (login) return;
+        if (listGroups) {
+            const groups = (await client.getChats()).filter((chat) => chat.isGroup);
+            for (const group of groups) {
+                process.stdout.write(`${group.id._serialized}\t${group.name}\n`);
+            }
+            return;
+        }
 
         const results = {};
         for (const recipient of request.recipients) {

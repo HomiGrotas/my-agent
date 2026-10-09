@@ -18,9 +18,17 @@ def collect_telegram_subscribers():
     )
 
 
+def run_telegram_bot():
+    """Runs the Telegram bot until stopped: handles (un)subscriptions, and sends the Parasha on /start."""
+    from .tools import run_telegram_bot as _run_telegram_bot
+    _run_telegram_bot()
+
+
 def main():
     """Command-line entry point (`my-agent` / `main.py`)."""
-    if "--collect-telegram-subscribers" in sys.argv[1:]:
+    if "--telegram-bot" in sys.argv[1:]:
+        run_telegram_bot()
+    elif "--collect-telegram-subscribers" in sys.argv[1:]:
         collect_telegram_subscribers()
     else:
         run_agent()

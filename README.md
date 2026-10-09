@@ -60,8 +60,9 @@ The agent runs as a single task (no chat loop), so everything is configured usin
 * `GEMINI_API_KEY` - the model provider key
 * `NEWS_API_KEY` - [NewsAPI](https://newsapi.org) key
 * `RECIPIENT_PHONE_NUMBER` - who gets the WhatsApp message (comma-separated for several numbers)
-* `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` - Telegram bot (from [@BotFather](https://t.me/BotFather)) and who gets the Telegram message (comma-separated chat IDs; each recipient must start the bot first). Anyone who messages the bot is subscribed and also gets the message every week; users unsubscribe by sending `/stop` to the bot (and subscribe again with `/start`). Subscriptions are stored in `data/telegram_subscribers.json` (or `TELEGRAM_SUBSCRIBERS_FILE`) (doesn't work if the bot has a webhook set). To apply new subscriptions and `/stop`s without sending the Parasha, run `uv run main.py --collect-telegram-subscribers`; the `deploy/my-agent-subscribers.timer` systemd timer does it every 12 hours, while `deploy/my-agent.timer` still sends the message once a week
-* `DEV_MODE` (optional) - set to `true` to send only to the recipients configured above, skipping the stored Telegram subscribers (new subscribers are still saved)
+* `WHATSAPP_GROUP_IDS` (optional) - WhatsApp groups that get the message (comma-separated `<id>@g.us` group IDs; your linked account must be in the group, and be an admin if only admins can send there). List your groups' IDs with `npm run list-groups` in `whatsapp/`
+* `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` - Telegram bot (from [@BotFather](https://t.me/BotFather)) and who gets the Telegram message (comma-separated chat IDs; each recipient must start the bot first). Anyone who messages the bot is subscribed and also gets the message every week; users unsubscribe by sending `/stop` to the bot (and subscribe again with `/start`; every `/start` is also answered with the latest Parasha message). Subscriptions are stored in `data/telegram_subscribers.json` (or `TELEGRAM_SUBSCRIBERS_FILE`) (doesn't work if the bot has a webhook set). The bot handles messages as they arrive while `uv run main.py --telegram-bot` runs (`deploy/my-agent-telegram-bot.service` keeps it running on the server); `uv run main.py --collect-telegram-subscribers` applies the pending ones once. `deploy/my-agent.timer` still sends the message to everyone once a week
+* `DEV_MODE` (optional) - set to `true` to send only to the recipients configured above, skipping the stored Telegram subscribers
 
 The message is sent to every recipient of every channel that has recipients - WhatsApp, Telegram, or both.
 * `RABBI` (optional) - whose articles to base the message on (defaults to Rabbi Sacks)
@@ -73,6 +74,7 @@ npm install
 npm run login
 ```
 The session is saved in `whatsapp/.wwebjs_auth` (or `WHATSAPP_SESSION_DIR`), so you only need to scan once.
+To find group IDs for `WHATSAPP_GROUP_IDS`, run `npm run list-groups` (prints `<group id>\t<group name>` for every group).
 > whatsapp-web.js is unofficial - WhatsApp may block accounts that look like bots, so keep the recipient list small.
 
 Then run:

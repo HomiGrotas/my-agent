@@ -9,13 +9,14 @@ SENDER_SCRIPT = Path(__file__).resolve().parents[2] / "whatsapp" / "send.js"
 TIMEOUT_SECONDS = 10 * 60
 
 
-def send_whatsapp_messages(recipient_phones: list[str], message_text: str) -> dict[str, str | None]:
-    """Sends a WhatsApp text message to several phone numbers via whatsapp-web.js.
+def send_whatsapp_messages(recipients: list[str], message_text: str) -> dict[str, str | None]:
+    """Sends a WhatsApp text message to several phone numbers and/or groups via whatsapp-web.js.
 
     All recipients share a single WhatsApp Web session, which must have been linked beforehand
     with `node whatsapp/send.js --login`.
 
-    :param recipient_phones: Recipients' phone numbers, in international format
+    :param recipients: Recipients' phone numbers in international format, or group chat IDs (`<id>@g.us`,
+        listed by `node whatsapp/send.js --list-groups`)
     :param message_text: The message body text to send, in WhatsApp formatting
     :return: Each recipient mapped to None if the message was sent, or to an error message
     """
@@ -28,7 +29,7 @@ def send_whatsapp_messages(recipient_phones: list[str], message_text: str) -> di
     # stderr is inherited, so the sender's logs (and a QR code, if login is needed) show up in the terminal
     process = subprocess.run(
         [node, str(SENDER_SCRIPT)],
-        input=json.dumps({"recipients": recipient_phones, "message": message_text}),
+        input=json.dumps({"recipients": recipients, "message": message_text}),
         stdout=subprocess.PIPE,
         text=True,
         timeout=TIMEOUT_SECONDS,

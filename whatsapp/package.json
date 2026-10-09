@@ -5,7 +5,8 @@
   "description": "Sends WhatsApp messages for my-agent via whatsapp-web.js",
   "main": "send.js",
   "scripts": {
-    "login": "node send.js --login"
+    "login": "node send.js --login",
+    "list-groups": "node send.js --list-groups"
   },
   "engines": {
     "node": ">=18.0.0"

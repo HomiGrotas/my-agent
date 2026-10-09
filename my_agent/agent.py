@@ -9,7 +9,11 @@ from my_agent.tools.get_parasha_articles import (
     list_parasha_articles,
     list_rabbis,
 )
-from my_agent.tools.send_telegram_message import send_telegram_message, update_telegram_subscribers
+from my_agent.tools.send_telegram_message import (
+    load_telegram_subscribers,
+    save_telegram_parasha_message,
+    send_telegram_message,
+)
 from my_agent.tools.send_whatsapp_message import send_whatsapp_messages
 from my_agent.utils import build_parasha_message, get_coming_jewish_events
 
@@ -19,14 +23,17 @@ logfire.instrument_pydantic_ai()
 jewish_events = get_coming_jewish_events()
 
 # Each channel's recipients env var (comma-separated); a channel is used whenever it has recipients.
-# Telegram also sends to every user who messaged the bot (stored subscribers), unless in dev mode,
-# and never to users who unsubscribed with /stop.
+# Telegram also sends to every user who messaged the bot (stored subscribers, kept up to date by the
+# `--telegram-bot` process), unless in dev mode, and never to users who unsubscribed with /stop.
 CHANNEL_RECIPIENT_ENV_VARS = {
     "whatsapp": "RECIPIENT_PHONE_NUMBER",
     "telegram": "TELEGRAM_CHAT_ID",
 }
+# WhatsApp groups (comma-separated "<id>@g.us" chat IDs, listed by `npm run list-groups` in whatsapp/) the
+# linked account is in; they are sent to along with the WhatsApp phone numbers.
+WHATSAPP_GROUP_IDS_ENV_VAR = "WHATSAPP_GROUP_IDS"
 
-# Dev mode sends only to the recipients configured in the env vars above (new subscribers are still stored).
+# Dev mode sends only to the recipients configured in the env vars above.
 DEV_MODE = os.environ.get("DEV_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 agent = Agent(
@@ -130,8 +137,9 @@ def _get_recipients() -> dict[str, list[str]]:
         channel: _parse_recipients(os.environ.get(env_var))
         for channel, env_var in CHANNEL_RECIPIENT_ENV_VARS.items()
     }
+    recipients["whatsapp"] += _parse_recipients(os.environ.get(WHATSAPP_GROUP_IDS_ENV_VAR))
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
-        subscription = update_telegram_subscribers()
+        subscription = load_telegram_subscribers()
         if not DEV_MODE:
             recipients["telegram"] += subscription["subscribers"]
         # Users who sent /stop to the bot don't get messages, even if they're in TELEGRAM_CHAT_ID
@@ -153,15 +161,24 @@ def send_parasha_message(dvar_torah: str, article_url: str) -> str:
     :param article_url: URL of the source Parasha article, appended to the message
     :return: A confirmation string describing the result for each recipient
     """
-    results = []
-    for channel, recipients in _get_recipients().items():
-        message_text = build_parasha_message(
+    def build_message(channel: str) -> str:
+        return build_parasha_message(
             parasha=jewish_events.get("parasha"),
             description=jewish_events.get("description"),
             dvar_torah=dvar_torah,
             article_url=article_url,
             style=channel,
         )
+
+    results = []
+    if dvar_torah and os.environ.get("TELEGRAM_BOT_TOKEN"):
+        # The Telegram bot sends it to users who /start it, until next week's message replaces it
+        try:
+            save_telegram_parasha_message(build_message("telegram"))
+        except OSError as e:
+            results.append(f"telegram: failed to store the message for new subscribers: {e}")
+    for channel, recipients in _get_recipients().items():
+        message_text = build_message(channel)
         if channel == "whatsapp":
             # One WhatsApp Web session sends to all recipients, as starting it is slow
             try:
@@ -187,7 +204,8 @@ def send_parasha_message(dvar_torah: str, article_url: str) -> str:
 def run_agent():
     if not _get_recipients():
         print(
-            f"No recipient - set at least one of: {', '.join(CHANNEL_RECIPIENT_ENV_VARS.values())}"
+            f"No recipient - set at least one of: "
+            f"{', '.join([*CHANNEL_RECIPIENT_ENV_VARS.values(), WHATSAPP_GROUP_IDS_ENV_VAR])}"
             + ("" if DEV_MODE else ", or message the Telegram bot")
         )
         exit(-1)

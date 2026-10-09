@@ -1,0 +1,19 @@
+[Unit]
+Description=Telegram bot of the Parasha agent: stores (un)subscriptions and sends the Parasha on /start
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+WorkingDirectory=__APP_DIR__
+# A container left over from an unclean stop would block the name
+ExecStartPre=-/usr/bin/docker rm -f my-agent-telegram-bot
+ExecStart=/usr/bin/docker run --rm --name my-agent-telegram-bot \
+    --env-file __APP_DIR__/.env \
+    -v __APP_DIR__/data:/app/data \
+    my-agent:latest /app/.venv/bin/python main.py --telegram-bot
+ExecStop=/usr/bin/docker stop my-agent-telegram-bot
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
