@@ -20,6 +20,8 @@ def send_whatsapp_messages(recipients: list[str], message_text: str) -> dict[str
     :param message_text: The message body text to send, in WhatsApp formatting
     :return: Each recipient mapped to None if the message was sent, or to an error message
     """
+    message_text += '\n\n'
+    message_text += "רוצים לקבל הודעה בTelegram? הירשמו לבוט https://t.me/prashaAI_bot"
     node = shutil.which("node")
     if not node:
         raise ValueError("Node.js is required to send WhatsApp messages, but `node` was not found")
