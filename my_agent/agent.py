@@ -3,18 +3,26 @@ import os
 import logfire
 from pydantic_ai import Agent, ModelRetry
 
+from my_agent.tools.personalization import personalize_dvar_torah
 from my_agent.tools.fetch_israeli_news import fetch_israeli_news
 from my_agent.tools.get_parasha_articles import (
     get_parasha_article,
     list_parasha_articles,
     list_rabbis,
 )
+from my_agent.tools.subscriptions import load_customizations
 from my_agent.tools.send_telegram_message import (
     load_telegram_subscribers,
     save_telegram_parasha_message,
     send_telegram_message,
 )
-from my_agent.tools.send_whatsapp_message import send_whatsapp_messages
+from my_agent.tools.send_whatsapp_message import (
+    has_whatsapp_session,
+    load_whatsapp_subscribers,
+    normalize_whatsapp_recipient,
+    save_whatsapp_parasha_message,
+    send_whatsapp_messages,
+)
 from my_agent.utils import build_parasha_message, get_coming_jewish_events
 
 logfire.configure(service_name="my-agent")
@@ -23,18 +31,17 @@ logfire.instrument_pydantic_ai()
 jewish_events = get_coming_jewish_events()
 
 # Each channel's recipients env var (comma-separated); a channel is used whenever it has recipients.
-# Telegram also sends to every user who messaged the bot (stored subscribers, kept up to date by the
-# `--telegram-bot` process), unless in dev mode, and never to users who unsubscribed with /stop.
+# Each channel also sends to its bot's stored subscribers (kept up to date by the `--telegram-bot` /
+# `--whatsapp-bot` processes), unless in dev mode, and never to users who unsubscribed through the bot.
 CHANNEL_RECIPIENT_ENV_VARS = {
     "whatsapp": "RECIPIENT_PHONE_NUMBER",
     "telegram": "TELEGRAM_CHAT_ID",
 }
-# WhatsApp groups (comma-separated "<id>@g.us" chat IDs, listed by `npm run list-groups` in whatsapp/) the
-# linked account is in; they are sent to along with the WhatsApp phone numbers.
-WHATSAPP_GROUP_IDS_ENV_VAR = "WHATSAPP_GROUP_IDS"
-
 # Dev mode sends only to the recipients configured in the env vars above.
 DEV_MODE = os.environ.get("DEV_MODE", "").strip().lower() in ("1", "true", "yes", "on")
+# Outside dev mode, WhatsApp also sends to every group the linked account is in (except groups that
+# unsubscribed through the bot), so it's enabled whenever an account is linked
+SEND_TO_WHATSAPP_GROUPS = not DEV_MODE and has_whatsapp_session()
 
 agent = Agent(
     'google:gemini-3.5-flash-lite',
@@ -132,24 +139,30 @@ def _parse_recipients(value: str | None) -> list[str]:
 
 
 def _get_recipients() -> dict[str, list[str]]:
-    """Returns each channel that has recipients, mapped to its unique recipients."""
+    """Returns each channel that has recipients, mapped to its unique recipients.
+
+    WhatsApp groups aren't listed: the sender adds them itself (see `SEND_TO_WHATSAPP_GROUPS`), so WhatsApp
+    may be enabled with no listed recipients.
+    """
     recipients = {
         channel: _parse_recipients(os.environ.get(env_var))
         for channel, env_var in CHANNEL_RECIPIENT_ENV_VARS.items()
     }
-    recipients["whatsapp"] += _parse_recipients(os.environ.get(WHATSAPP_GROUP_IDS_ENV_VAR))
+    recipients["whatsapp"] = [normalize_whatsapp_recipient(recipient) for recipient in recipients["whatsapp"]]
+    subscriptions = {"whatsapp": load_whatsapp_subscribers()}
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
-        subscription = load_telegram_subscribers()
+        subscriptions["telegram"] = load_telegram_subscribers()
+    for channel, subscription in subscriptions.items():
         if not DEV_MODE:
-            recipients["telegram"] += subscription["subscribers"]
-        # Users who sent /stop to the bot don't get messages, even if they're in TELEGRAM_CHAT_ID
-        recipients["telegram"] = [
-            chat_id for chat_id in recipients["telegram"] if chat_id not in subscription["unsubscribed"]
+            recipients[channel] += subscription["subscribers"]
+        # Users who unsubscribed through the bot don't get messages, even if they're in the env var
+        recipients[channel] = [
+            recipient for recipient in recipients[channel] if recipient not in subscription["unsubscribed"]
         ]
     return {
         channel: list(dict.fromkeys(channel_recipients))
         for channel, channel_recipients in recipients.items()
-        if channel_recipients
+        if channel_recipients or (channel == "whatsapp" and SEND_TO_WHATSAPP_GROUPS)
     }
 
 
@@ -161,41 +174,84 @@ def send_parasha_message(dvar_torah: str, article_url: str) -> str:
     :param article_url: URL of the source Parasha article, appended to the message
     :return: A confirmation string describing the result for each recipient
     """
-    def build_message(channel: str) -> str:
+    def build_message(channel: str, text: str = dvar_torah) -> str:
         return build_parasha_message(
             parasha=jewish_events.get("parasha"),
             description=jewish_events.get("description"),
-            dvar_torah=dvar_torah,
+            dvar_torah=text,
             article_url=article_url,
             style=channel,
         )
 
     results = []
-    if dvar_torah and os.environ.get("TELEGRAM_BOT_TOKEN"):
-        # The Telegram bot sends it to users who /start it, until next week's message replaces it
+    # Each bot sends it to users who subscribe, until next week's message replaces it
+    stored_channels = {"whatsapp": save_whatsapp_parasha_message}
+    if os.environ.get("TELEGRAM_BOT_TOKEN"):
+        stored_channels["telegram"] = save_telegram_parasha_message
+    for channel, save_message in stored_channels.items() if dvar_torah else ():
         try:
-            save_telegram_parasha_message(build_message("telegram"))
+            save_message(build_message(channel))
         except OSError as e:
-            results.append(f"telegram: failed to store the message for new subscribers: {e}")
-    for channel, recipients in _get_recipients().items():
+            results.append(f"{channel}: failed to store the message for new subscribers: {e}")
+    all_recipients = _get_recipients()
+    whatsapp_unsubscribed = load_whatsapp_subscribers()["unsubscribed"]
+    # Recipients who set a personal preference with /configure get the דבר תורה rewritten for it
+    # (one rewrite per distinct preference); if a rewrite fails they get the base one
+    preferences = {}
+    for channel, recipients in all_recipients.items():
+        customizations = load_customizations(channel)
+        preferences[channel] = {
+            recipient: preference
+            for recipient, preference in customizations.items()
+            if recipient in recipients
+            # Groups configured in the bot, which the sender adds itself unless they unsubscribed
+            or (channel == "whatsapp" and SEND_TO_WHATSAPP_GROUPS and recipient.endswith("@g.us")
+                and recipient not in whatsapp_unsubscribed)
+        }
+    personalized = personalize_dvar_torah(
+        dvar_torah,
+        jewish_events.get("parasha"),
+        {preference for channel_preferences in preferences.values() for preference in channel_preferences.values()},
+    )
+    personal_messages = {
+        channel: {
+            recipient: build_message(channel, personalized[preference])
+            for recipient, preference in channel_preferences.items()
+            if preference in personalized
+        }
+        for channel, channel_preferences in preferences.items()
+    }
+
+    for channel, recipients in all_recipients.items():
         message_text = build_message(channel)
+
+        def sent(recipient: str) -> str:
+            return "sent (personalized)" if recipient in personal_messages[channel] else "sent"
+
         if channel == "whatsapp":
             # One WhatsApp Web session sends to all recipients, as starting it is slow
             try:
-                errors = send_whatsapp_messages(recipients, message_text)
+                errors = send_whatsapp_messages(
+                    recipients,
+                    message_text,
+                    personal_messages[channel],
+                    all_groups=SEND_TO_WHATSAPP_GROUPS,
+                    exclude=whatsapp_unsubscribed,
+                )
             except Exception as e:
                 errors = {recipient: str(e) for recipient in recipients}
-            for recipient in recipients:
+            # The sender's results also hold the groups it added
+            for recipient in dict.fromkeys([*recipients, *errors]):
                 error = errors.get(recipient, "no result from the WhatsApp sender")
-                results.append(f"{channel} {recipient}: " + (f"failed: {error}" if error else "sent"))
+                results.append(f"{channel} {recipient}: " + (f"failed: {error}" if error else sent(recipient)))
             continue
         for recipient in recipients:
             try:
                 if channel == "telegram":
-                    send_telegram_message(recipient, message_text)
+                    send_telegram_message(recipient, personal_messages[channel].get(recipient, message_text))
                 else:
                     raise NotImplementedError(f"Unknown channel '{channel}'")
-                results.append(f"{channel} {recipient}: sent")
+                results.append(f"{channel} {recipient}: {sent(recipient)}")
             except Exception as e:
                 results.append(f"{channel} {recipient}: failed: {e}")
     return "\n".join(results)
@@ -205,8 +261,8 @@ def run_agent():
     if not _get_recipients():
         print(
             f"No recipient - set at least one of: "
-            f"{', '.join([*CHANNEL_RECIPIENT_ENV_VARS.values(), WHATSAPP_GROUP_IDS_ENV_VAR])}"
-            + ("" if DEV_MODE else ", or message the Telegram bot")
+            f"{', '.join(CHANNEL_RECIPIENT_ENV_VARS.values())}"
+            + ("" if DEV_MODE else ", subscribe through the Telegram / WhatsApp bot, or link a WhatsApp account")
         )
         exit(-1)
     rabbi = os.environ.get('RABBI')

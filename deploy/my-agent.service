@@ -6,9 +6,12 @@ After=network-online.target docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=__APP_DIR__
-ExecStart=/usr/bin/docker run --rm --name my-agent \
+# The WhatsApp bot uses the same linked session (one browser at a time), so it pauses while sending
+ExecStartPre=-/bin/systemctl stop my-agent-whatsapp-bot.service
+ExecStart=/usr/bin/docker run --rm --name my-agent --hostname my-agent-whatsapp \
     --env-file __APP_DIR__/.env \
     -v __APP_DIR__/.logfire:/app/.logfire:ro \
     -v __APP_DIR__/.wwebjs_auth:/app/whatsapp/.wwebjs_auth \
     -v __APP_DIR__/data:/app/data \
     my-agent:latest
+ExecStopPost=-/bin/sh -c 'systemctl is-enabled -q my-agent-whatsapp-bot.service && systemctl start --no-block my-agent-whatsapp-bot.service'

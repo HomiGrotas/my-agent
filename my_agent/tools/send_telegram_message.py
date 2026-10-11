@@ -1,16 +1,20 @@
-import json
+import html
 import os
 import sys
 import time
-from pathlib import Path
 
 import requests
 
+from my_agent.tools.personalization import get_configure_argument, handle_configure
+from my_agent.tools.subscriptions import (
+    apply_subscription_events,
+    load_parasha_message,
+    load_subscribers,
+    save_parasha_message,
+)
+
 # Telegram Bot API limit for a single message's text
 MAX_MESSAGE_LENGTH = 4096
-
-# Every user who ever messaged the bot, kept across runs (Telegram only keeps updates for ~24h)
-DEFAULT_SUBSCRIBERS_FILE = Path(__file__).resolve().parents[2] / "data" / "telegram_subscribers.json"
 
 
 def _get_credentials():
@@ -65,7 +69,9 @@ def _get_command(text: str) -> str:
     return text.split()[0].split("@")[0].lower()
 
 
-def _get_telegram_updates(offset: int | None = None, timeout: int = 0) -> tuple[list[tuple[str, str]], int | None]:
+def _get_telegram_updates(
+    offset: int | None = None, timeout: int = 0
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]], int | None]:
     """Returns what users did in their private chats with the bot since `offset`, oldest first.
 
     Fetching with an offset acknowledges every earlier update, so Telegram won't return them again
@@ -74,9 +80,9 @@ def _get_telegram_updates(offset: int | None = None, timeout: int = 0) -> tuple[
 
     :param offset: The offset returned by the previous call, or None for all pending updates
     :param timeout: Seconds to wait for an update if there's none yet (0 returns immediately)
-    :return: (chat ID, event) pairs, and the offset to pass next time. Event is "start" (/start),
-        "subscribe" (/subscribe, or the user unblocked the bot), "unsubscribe" (/stop, or the user
-        blocked the bot) or "message" (anything else)
+    :return: (chat ID, event) pairs, (chat ID, text after /configure) pairs, and the offset to pass next
+        time. Event is "start" (/start), "subscribe" (/subscribe, or the user unblocked the bot),
+        "unsubscribe" (/stop, or the user blocked the bot) or "message" (anything else, /configure included)
     :raises requests.RequestException: If the updates can't be fetched
     """
     bot_token = _get_credentials()
@@ -96,6 +102,7 @@ def _get_telegram_updates(offset: int | None = None, timeout: int = 0) -> tuple[
         offset = updates[-1]["update_id"] + 1
 
     events = []
+    configures = []
     for update in updates:
         if member_update := update.get("my_chat_member"):
             if member_update["chat"].get("type") == "private":
@@ -108,6 +115,8 @@ def _get_telegram_updates(offset: int | None = None, timeout: int = 0) -> tuple[
         if chat.get("type") != "private":
             continue
         command = _get_command(message.get("text", ""))
+        if command == "/configure":
+            configures.append((str(chat["id"]), get_configure_argument(message["text"])))
         if command in UNSUBSCRIBE_COMMANDS:
             event = "unsubscribe"
         elif command == START_COMMAND and "message" in update:  # not on editing an old /start
@@ -117,24 +126,7 @@ def _get_telegram_updates(offset: int | None = None, timeout: int = 0) -> tuple[
         else:
             event = "message"
         events.append((str(chat["id"]), event))
-    return events, offset
-
-
-def _get_subscribers_file() -> Path:
-    return Path(os.environ.get("TELEGRAM_SUBSCRIBERS_FILE") or DEFAULT_SUBSCRIBERS_FILE)
-
-
-def _get_parasha_message_file() -> Path:
-    # Kept next to the subscribers, so it's in the same persistent directory
-    return _get_subscribers_file().parent / "telegram_parasha_message.txt"
-
-
-def _write_atomically(path: Path, text: str):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Write then rename, so a crash mid-write (or a concurrent reader) never sees a partial file
-    tmp_file = path.with_suffix(".tmp")
-    tmp_file.write_text(text)
-    tmp_file.replace(path)
+    return events, configures, offset
 
 
 def save_telegram_parasha_message(message_text: str):
@@ -142,13 +134,12 @@ def save_telegram_parasha_message(message_text: str):
 
     :param message_text: The full message, as sent to the Telegram subscribers
     """
-    _write_atomically(_get_parasha_message_file(), message_text)
+    save_parasha_message("telegram", message_text)
 
 
 def load_telegram_parasha_message() -> str | None:
     """Returns the latest Parasha message stored by `save_telegram_parasha_message`, or None if there's none."""
-    message_file = _get_parasha_message_file()
-    return message_file.read_text() if message_file.exists() else None
+    return load_parasha_message("telegram")
 
 
 def load_telegram_subscribers() -> dict[str, list[str]]:
@@ -156,18 +147,7 @@ def load_telegram_subscribers() -> dict[str, list[str]]:
 
     :return: {"subscribers": chat IDs to send to, "unsubscribed": chat IDs that asked not to get messages}
     """
-    subscribers_file = _get_subscribers_file()
-    state = json.loads(subscribers_file.read_text()) if subscribers_file.exists() else {}
-    if isinstance(state, list):  # Older files hold only the subscribers list
-        state = {"subscribers": state}
-    return {
-        "subscribers": [str(chat_id) for chat_id in state.get("subscribers", [])],
-        "unsubscribed": [str(chat_id) for chat_id in state.get("unsubscribed", [])],
-    }
-
-
-def _save_telegram_subscribers(state: dict[str, list[str]]):
-    _write_atomically(_get_subscribers_file(), json.dumps(state, indent=2))
+    return load_subscribers("telegram")
 
 
 def _apply_telegram_events(events: list[tuple[str, str]]) -> dict[str, list[str]]:
@@ -176,51 +156,32 @@ def _apply_telegram_events(events: list[tuple[str, str]]) -> dict[str, list[str]
     A new user who messages the bot is subscribed; /stop (or blocking the bot) unsubscribes, and an
     unsubscribed user is subscribed again only by /start or /subscribe. Each user whose subscription
     changed gets a confirmation reply, and each user who sent /start then gets the latest Parasha
-    message, if one is stored (failures to reply are ignored).
+    message, if one is stored (see `apply_subscription_events`).
 
     :param events: (chat ID, event) pairs, as returned by `_get_telegram_updates`
     :return: The updated state, as returned by `load_telegram_subscribers`
     """
-    state = load_telegram_subscribers()
-    subscribers, unsubscribed = state["subscribers"], state["unsubscribed"]
-    was_subscribed = set(subscribers)
-    touched = []  # chat IDs whose subscription may have changed
-    # Applying an event again must be harmless, as updates are replayed if the bot crashes before acknowledging them
-    for chat_id, event in events:
-        if event == "unsubscribe" and chat_id not in unsubscribed:
-            if chat_id in subscribers:
-                subscribers.remove(chat_id)
-            unsubscribed.append(chat_id)
-            touched.append(chat_id)
-        elif (event in ("start", "subscribe") or (event == "message" and chat_id not in unsubscribed)) \
-                and chat_id not in subscribers:
-            if chat_id in unsubscribed:
-                unsubscribed.remove(chat_id)
-            subscribers.append(chat_id)
-            touched.append(chat_id)
-    changed = [
-        chat_id for chat_id in dict.fromkeys(touched)
-        if (chat_id in subscribers) != (chat_id in was_subscribed)
-    ]
-    if touched:
-        _save_telegram_subscribers(state)
-    for chat_id in changed:
+    return apply_subscription_events(
+        "telegram", events, send_telegram_message, SUBSCRIBED_REPLY, UNSUBSCRIBED_REPLY
+    )
+
+
+def _apply_telegram_configures(configures: list[tuple[str, str]]):
+    """Handles /configure commands (see `handle_configure`) and replies to the users.
+
+    :param configures: (chat ID, text after /configure) pairs, as returned by `_get_telegram_updates`
+    """
+    for chat_id, argument in configures:
+        reply = handle_configure("telegram", chat_id, argument)
         try:
-            send_telegram_message(chat_id, SUBSCRIBED_REPLY if chat_id in subscribers else UNSUBSCRIBED_REPLY)
+            send_telegram_message(chat_id, html.escape(reply))
         except requests.RequestException:
-            pass  # e.g. the user blocked the bot
-    started = [chat_id for chat_id, event in events if event == "start" and chat_id in subscribers]
-    if started and (parasha_message := load_telegram_parasha_message()):
-        for chat_id in dict.fromkeys(started):
-            try:
-                send_telegram_message(chat_id, parasha_message)
-            except requests.RequestException:
-                pass
-    return state
+            pass
 
 
 def update_telegram_subscribers() -> dict[str, list[str]]:
-    """Applies the pending bot messages once (see `_apply_telegram_events`) and acknowledges them.
+    """Applies the pending bot messages once (see `_apply_telegram_events` and `_apply_telegram_configures`)
+    and acknowledges them.
 
     Use `run_telegram_bot` to handle them continuously instead. If the updates can't be fetched (e.g.
     the bot is already running), the stored subscribers are returned unchanged.
@@ -228,10 +189,11 @@ def update_telegram_subscribers() -> dict[str, list[str]]:
     :return: The updated state, as returned by `load_telegram_subscribers`
     """
     try:
-        events, offset = _get_telegram_updates()
+        events, configures, offset = _get_telegram_updates()
     except requests.RequestException:
         return load_telegram_subscribers()
     state = _apply_telegram_events(events)
+    _apply_telegram_configures(configures)
     if events:
         try:
             _get_telegram_updates(offset)  # acknowledges the applied updates
@@ -241,11 +203,12 @@ def update_telegram_subscribers() -> dict[str, list[str]]:
 
 
 def run_telegram_bot():
-    """Handles the bot's messages as they arrive (see `_apply_telegram_events`), forever."""
+    """Handles the bot's messages as they arrive (see `_apply_telegram_events` and
+    `_apply_telegram_configures`), forever."""
     offset = None
     while True:
         try:
-            events, offset = _get_telegram_updates(offset, timeout=POLL_TIMEOUT)
+            events, configures, offset = _get_telegram_updates(offset, timeout=POLL_TIMEOUT)
         except requests.RequestException as e:
             print(f"Failed to get Telegram updates, retrying: {e}", file=sys.stderr, flush=True)
             time.sleep(POLL_RETRY_DELAY)
@@ -253,6 +216,7 @@ def run_telegram_bot():
         if events:
             print(f"Handling Telegram events: {events}", flush=True)
             _apply_telegram_events(events)
+            _apply_telegram_configures(configures)
 
 
 def send_telegram_message(chat_id: str, message_text: str) -> list[dict]:

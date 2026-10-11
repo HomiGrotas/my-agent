@@ -24,10 +24,18 @@ def run_telegram_bot():
     _run_telegram_bot()
 
 
+def run_whatsapp_bot():
+    """Runs the WhatsApp bot until stopped: handles (un)subscriptions, and sends the Parasha on subscribing."""
+    from .tools import run_whatsapp_bot as _run_whatsapp_bot
+    _run_whatsapp_bot()
+
+
 def main():
     """Command-line entry point (`my-agent` / `main.py`)."""
     if "--telegram-bot" in sys.argv[1:]:
         run_telegram_bot()
+    elif "--whatsapp-bot" in sys.argv[1:]:
+        run_whatsapp_bot()
     elif "--collect-telegram-subscribers" in sys.argv[1:]:
         collect_telegram_subscribers()
     else:

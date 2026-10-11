@@ -60,9 +60,11 @@ The agent runs as a single task (no chat loop), so everything is configured usin
 * `GEMINI_API_KEY` - the model provider key
 * `NEWS_API_KEY` - [NewsAPI](https://newsapi.org) key
 * `RECIPIENT_PHONE_NUMBER` - who gets the WhatsApp message (comma-separated for several numbers)
-* `WHATSAPP_GROUP_IDS` (optional) - WhatsApp groups that get the message (comma-separated `<id>@g.us` group IDs; your linked account must be in the group, and be an admin if only admins can send there). List your groups' IDs with `npm run list-groups` in `whatsapp/`
+* WhatsApp groups - the message is also sent to every group your linked account is in (except groups where only admins can post and it isn't one), unless `DEV_MODE` is set. To stop it in a group, any member tags the linked account and sends `הסרה` there (`@<account> הסרה`; `הרשמה` turns it back on)
 * `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` - Telegram bot (from [@BotFather](https://t.me/BotFather)) and who gets the Telegram message (comma-separated chat IDs; each recipient must start the bot first). Anyone who messages the bot is subscribed and also gets the message every week; users unsubscribe by sending `/stop` to the bot (and subscribe again with `/start`; every `/start` is also answered with the latest Parasha message). Subscriptions are stored in `data/telegram_subscribers.json` (or `TELEGRAM_SUBSCRIBERS_FILE`) (doesn't work if the bot has a webhook set). The bot handles messages as they arrive while `uv run main.py --telegram-bot` runs (`deploy/my-agent-telegram-bot.service` keeps it running on the server); `uv run main.py --collect-telegram-subscribers` applies the pending ones once. `deploy/my-agent.timer` still sends the message to everyone once a week
-* `DEV_MODE` (optional) - set to `true` to send only to the recipients configured above, skipping the stored Telegram subscribers
+* WhatsApp bot - anyone can subscribe by sending `הרשמה` (or `start`) in a private WhatsApp message to the linked account, and unsubscribe with `הסרה` (or `stop`); subscribing is also answered with the latest Parasha message. The same commands (and `/configure`) work in groups the linked account is in when the message tags it (e.g. `@<account> הרשמה`); any member's command applies to the whole group. Other messages are ignored (it's your own account). Subscriptions are stored in `data/whatsapp_subscribers.json` (or `WHATSAPP_SUBSCRIBERS_FILE`) while `uv run main.py --whatsapp-bot` runs (`deploy/my-agent-whatsapp-bot.service` keeps it running on the server, and pauses it while the weekly message is sent, as both use the same WhatsApp session)
+* Personal preferences - on both bots, `/configure <preference>` (WhatsApp also `התאמה <preference>`) saves a lasting preference such as "short, for kids" or "more emphasis on halacha"; `/configure` shows it and `/configure reset` deletes it. Each preference is checked by a separate AI guard (which rejects prompt-injection attempts, links, ads, unrelated content) and stored as its neutral summary in `data/<channel>_customizations.json`. Every week the דבר תורה is written once and then rewritten for each distinct preference by a model with no tools; a rewrite with links, contact details or garbled text falls back to the regular one
+* `DEV_MODE` (optional) - set to `true` to send only to the recipients configured above, skipping the stored Telegram and WhatsApp subscribers and the WhatsApp groups
 
 The message is sent to every recipient of every channel that has recipients - WhatsApp, Telegram, or both.
 * `RABBI` (optional) - whose articles to base the message on (defaults to Rabbi Sacks)
@@ -74,7 +76,7 @@ npm install
 npm run login
 ```
 The session is saved in `whatsapp/.wwebjs_auth` (or `WHATSAPP_SESSION_DIR`), so you only need to scan once.
-To find group IDs for `WHATSAPP_GROUP_IDS`, run `npm run list-groups` (prints `<group id>\t<group name>` for every group).
+To see which groups the account is in, run `npm run list-groups` (prints `<group id>\t<group name>` for every group).
 > whatsapp-web.js is unofficial - WhatsApp may block accounts that look like bots, so keep the recipient list small.
 
 Then run:

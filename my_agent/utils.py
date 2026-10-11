@@ -42,8 +42,8 @@ def build_parasha_message(
     :param description: The Parasha's short description ("תקציר הפרשה")
     :param dvar_torah: The LLM-generated reflection text ("דבר תורה")
     :param article_url: URL of the source article, appended on its own line
-    :param style: Formatting of the target channel - "whatsapp" (`*bold*`) or "telegram" (HTML, ending
-        with how to unsubscribe from the bot)
+    :param style: Formatting of the target channel - "whatsapp" (`*bold*`) or "telegram" (HTML); both end
+        with how to subscribe to / unsubscribe from / personalize the channel's bot
     :return: The fully formatted message text
     """
     if style == "telegram":
@@ -62,5 +62,11 @@ def build_parasha_message(
     if article_url:
         message += f"\n\n{article_url}"
     if style == "telegram":
-        message += "\n\nלהסרה מרשימת התפוצה שלחו /stop"
+        message += "\n\nלהתאמה אישית שלחו /configure ואת ההעדפה שלכם\nלהסרה מרשימת התפוצה שלחו /stop"
+    else:
+        message += (
+            "\n\nלקבלת ההודעה בפרטי שלחו *הרשמה*, ולהסרה *הסרה*"
+            "\nלהתאמה אישית שלחו /configure ואת ההעדפה שלכם (בקבוצה - עם תיוג שלי, וההעדפה תחול על כל הקבוצה)"
+            "\nרוצים לקבל הודעה בTelegram? הירשמו לבוט https://t.me/prashaAI_bot"
+        )
     return message

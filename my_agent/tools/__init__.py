@@ -8,10 +8,20 @@ from .send_telegram_message import (
     send_telegram_message,
     update_telegram_subscribers,
 )
-from .send_whatsapp_message import send_whatsapp_messages
+from .send_whatsapp_message import (
+    load_whatsapp_parasha_message,
+    load_whatsapp_subscribers,
+    run_whatsapp_bot,
+    save_whatsapp_parasha_message,
+    send_whatsapp_messages,
+)
 
 __all__ = [
     "send_whatsapp_messages",
+    "load_whatsapp_subscribers",
+    "run_whatsapp_bot",
+    "save_whatsapp_parasha_message",
+    "load_whatsapp_parasha_message",
     "send_telegram_message",
     "load_telegram_subscribers",
     "update_telegram_subscribers",

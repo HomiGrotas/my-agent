@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Deploys the agent to the server over SSH: builds the Docker image locally (with the local article
 # corpus) and loads it on the server, then installs/enables the systemd units (weekly send + the
-# always-running Telegram bot, restarted to use the new image). The server has ~1 GB of RAM, so building there is slow and may run out of memory.
+# always-running Telegram and WhatsApp bots, restarted to use the new image). The server has ~1 GB of RAM, so building there is slow and may run out of memory.
 #
-# Server state lives in $APP_DIR and is kept across deploys: .env, .logfire/, data/ (Telegram
-# subscribers), .wwebjs_auth/ (linked WhatsApp session). The files to deploy (the systemd units, or the
+# Server state lives in $APP_DIR and is kept across deploys: .env, .logfire/, data/ (Telegram and
+# WhatsApp subscribers), .wwebjs_auth/ (linked WhatsApp session). The files to deploy (the systemd units, or the
 # whole build context with --build-on-server) are uploaded to $APP_DIR/build, recreated on every deploy.
 #
 # Usage: deploy/deploy.sh [--build-on-server] [--env] [--whatsapp-session]
@@ -55,7 +55,8 @@ if $UPLOAD_ENV; then
 fi
 
 if $UPLOAD_WHATSAPP_SESSION; then
-    echo "==> Uploading the linked WhatsApp session"
+    echo "==> Uploading the linked WhatsApp session (stopping the WhatsApp bot, which uses it)"
+    ssh "$HOST" "sudo systemctl stop my-agent-whatsapp-bot.service 2>/dev/null || true"
     # Browser caches and profile locks aren't needed to restore the session
     tar -czf - -C whatsapp \
         --exclude='Cache' --exclude='Code Cache' --exclude='GPUCache' --exclude='Singleton*' .wwebjs_auth \
@@ -64,12 +65,14 @@ if $UPLOAD_WHATSAPP_SESSION; then
             && rm -rf .wwebjs_auth && mv .wwebjs_auth.new .wwebjs_auth"
 fi
 
-# Seed the server's Telegram subscribers from the local file, but never overwrite the server's
-if [ -f data/telegram_subscribers.json ]; then
-    ssh "$HOST" "mkdir -p '$APP_DIR/data' && [ ! -f '$APP_DIR/data/telegram_subscribers.json' ] \
-        && cat > '$APP_DIR/data/telegram_subscribers.json' && echo '==> Seeded Telegram subscribers' \
-        || true" < data/telegram_subscribers.json
-fi
+# Seed the server's subscribers from the local files, but never overwrite the server's
+for channel in telegram whatsapp; do
+    if [ -f "data/${channel}_subscribers.json" ]; then
+        ssh "$HOST" "mkdir -p '$APP_DIR/data' && [ ! -f '$APP_DIR/data/${channel}_subscribers.json' ] \
+            && cat > '$APP_DIR/data/${channel}_subscribers.json' && echo '==> Seeded $channel subscribers' \
+            || true" < "data/${channel}_subscribers.json"
+    fi
+done
 
 if $BUILD_ON_SERVER; then
     echo "==> Building the Docker image on the server"
@@ -92,9 +95,9 @@ ssh "$HOST" "set -e
         sudo rm -f /etc/systemd/system/my-agent-subscribers.timer /etc/systemd/system/my-agent-subscribers.service
     fi
     sudo systemctl daemon-reload
-    sudo systemctl enable --now my-agent.timer my-agent-telegram-bot.service
-    sudo systemctl restart my-agent-telegram-bot.service
+    sudo systemctl enable --now my-agent.timer my-agent-telegram-bot.service my-agent-whatsapp-bot.service
+    sudo systemctl restart my-agent-telegram-bot.service my-agent-whatsapp-bot.service
     systemctl list-timers --no-pager 'my-agent*'
-    systemctl status --no-pager --lines=0 my-agent-telegram-bot.service"
+    systemctl status --no-pager --lines=0 my-agent-telegram-bot.service my-agent-whatsapp-bot.service"
 
 echo "==> Deployed"
